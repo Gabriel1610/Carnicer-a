@@ -1,21 +1,11 @@
 import flet as ft
 import random
 from base_de_datos import BaseDeDatos
+from ventana_mensaje import GestorMensajes
 
 class Carniceria:
     def __init__(self, page: ft.Page):
         self.page = page
-        self.page.title = "Fuego & Fierro - Gestión"
-        
-        # CONFIGURACIÓN DE VENTANA:
-        # Inicia la aplicación maximizada para aprovechar todo el monitor
-        self.page.window.maximized = True
-        # Deshabilita el botón de maximizar/restaurar de la esquina superior derecha
-        self.page.window.maximizable = False
-        
-        # Mantenemos el modo claro y quitamos los márgenes por defecto de la página
-        self.page.theme_mode = ft.ThemeMode.LIGHT
-        self.page.padding = 0
         
         # Instanciamos la base de datos
         self.bd = BaseDeDatos()
@@ -27,32 +17,36 @@ class Carniceria:
         # Configuración del enrutador
         self.page.on_route_change = self.cambio_de_ruta
         
-        # Iniciamos la app yendo al login
+        # Arrancamos la aplicación
         self.navegar("/login")
 
     def navegar(self, ruta):
-        """Método seguro y síncrono para cambiar de pantalla en Flet 0.84+"""
+        """Método seguro y síncrono para cambiar de pantalla."""
         self.page.route = ruta
         self.cambio_de_ruta(None)
 
-    def mostrar_alerta(self, mensaje, color=ft.Colors.RED_600):
-        """Muestra un mensaje flotante (SnackBar) de forma 100% compatible."""
-        # Asignamos el snackbar directamente a la propiedad de la página
-        self.page.snack_bar = ft.SnackBar(content=ft.Text(mensaje), bgcolor=color)
-        self.page.snack_bar.open = True
-        self.page.update()
+    def mostrar_alerta(self, titulo, mensaje, tipo="info"):
+        """Usa el GestorMensajes para mostrar notificaciones modales."""
+        GestorMensajes.mostrar(self.page, titulo, mensaje, tipo)
 
     def cambio_de_ruta(self, route_event):
-        """Maneja qué pantalla se muestra según la ruta actual."""
+        """Maneja qué pantalla se muestra garantizando que nunca quede vacía."""
+        # 1. Limpiamos la pantalla actual
         self.page.views.clear()
         
-        if self.page.route == "/login":
-            self.page.views.append(self.vista_login())
-        elif self.page.route == "/registro":
+        # 2. Atrapamos la ruta (ya sea del evento automático de Flet o de la navegación manual)
+        ruta_destino = route_event.route if route_event else self.page.route
+        
+        # 3. Dibujamos la vista correspondiente
+        if ruta_destino == "/registro":
             self.page.views.append(self.vista_registro())
-        elif self.page.route == "/validacion":
+        elif ruta_destino == "/validacion":
             self.page.views.append(self.vista_validacion())
+        else:
+            # Si la ruta es "/", "/login" o cualquier basura, forzamos el Login.
+            self.page.views.append(self.vista_login())
             
+        # 4. Actualizamos la interfaz
         self.page.update()
 
     # ==========================================
@@ -65,14 +59,15 @@ class Carniceria:
 
         def intentar_login(e):
             if not txt_email.value or not txt_pass.value:
-                self.mostrar_alerta("Completá todos los campos.")
+                self.mostrar_alerta("Campos Incompletos", "Por favor, completá tu correo y contraseña.", "error")
                 return
             
             exito, mensaje = self.bd.verificar_login(txt_email.value, txt_pass.value)
             if exito:
-                self.mostrar_alerta("¡Ingreso exitoso!", color=ft.Colors.GREEN_600)
+                self.mostrar_alerta("¡Bienvenido!", "El ingreso fue exitoso.", "exito")
+                # A futuro: self.navegar("/dashboard")
             else:
-                self.mostrar_alerta(mensaje)
+                self.mostrar_alerta("Error de Acceso", mensaje, "error")
 
         return ft.View(
             route="/login",
@@ -103,37 +98,31 @@ class Carniceria:
         txt_apellido = ft.TextField(label="Apellido", width=300)
         txt_email = ft.TextField(label="Correo Electrónico", width=300)
         txt_pass = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
-        # NUEVO CAMPO: Confirmación de contraseña
         txt_pass_conf = ft.TextField(label="Confirmar Contraseña", password=True, can_reveal_password=True, width=300)
 
         def enviar_codigo(e):
-            # 1. Validar que TODOS los campos estén completos, incluyendo la confirmación
             if not all([txt_nombre.value, txt_apellido.value, txt_email.value, txt_pass.value, txt_pass_conf.value]):
-                self.mostrar_alerta("Completá todos los campos.")
+                self.mostrar_alerta("Campos Incompletos", "Completá todos los datos para poder registrarte.", "error")
                 return
             
-            # 2. NUEVA VALIDACIÓN: Verificar que ambas contraseñas sean exactamente iguales
             if txt_pass.value != txt_pass_conf.value:
-                self.mostrar_alerta("Las contraseñas no coinciden.")
+                self.mostrar_alerta("Contraseñas", "Las contraseñas no coinciden. Verificá lo que escribiste.", "error")
                 return
             
-            # 3. Generamos un código de 6 dígitos
             self.codigo_generado = str(random.randint(100000, 999999))
             
-            # 4. Guardamos temporalmente los datos en memoria
             self.datos_temporales_registro = {
                 "nombre": txt_nombre.value,
                 "apellido": txt_apellido.value,
                 "email": txt_email.value,
-                "password": txt_pass.value # Solo hace falta guardar una, ya sabemos que son iguales
+                "password": txt_pass.value 
             }
             
-            # 5. Simulación de email en la consola
             print(f"\n--- SIMULACIÓN DE EMAIL ---")
             print(f"Enviando a {txt_email.value} el código: {self.codigo_generado}")
             print(f"---------------------------\n")
             
-            self.mostrar_alerta(f"Código enviado a {txt_email.value}", color=ft.Colors.BLUE_600)
+            self.mostrar_alerta("Código Enviado", f"Revisá tu bandeja de entrada en {txt_email.value}", "info")
             self.navegar("/validacion")
 
         return ft.View(
@@ -147,7 +136,7 @@ class Carniceria:
                             txt_apellido,
                             txt_email,
                             txt_pass,
-                            txt_pass_conf, # AGREGADO A LA INTERFAZ VISUAL
+                            txt_pass_conf,
                             ft.Button("Solicitar Código de Verificación", on_click=enviar_codigo, width=300),
                             ft.TextButton("Volver al Login", on_click=lambda _: self.navegar("/login"))
                         ],
@@ -171,12 +160,12 @@ class Carniceria:
                 )
                 
                 if exito:
-                    self.mostrar_alerta(msj, color=ft.Colors.GREEN_600)
+                    self.mostrar_alerta("¡Cuenta Creada!", msj, "exito")
                     self.navegar("/login")
                 else:
-                    self.mostrar_alerta(msj)
+                    self.mostrar_alerta("Fallo en el Registro", msj, "error")
             else:
-                self.mostrar_alerta("Código incorrecto. Intentá nuevamente.")
+                self.mostrar_alerta("Validación Fallida", "El código ingresado es incorrecto. Intentá nuevamente.", "error")
 
         return ft.View(
             route="/validacion",
@@ -201,7 +190,23 @@ class Carniceria:
         )
 
 def main(page: ft.Page):
+    # 1. Configuración estable de la página antes de cargar la app
+    page.title = "Fuego & Fierro - Gestión"
+    page.theme_mode = ft.ThemeMode.LIGHT
+    page.padding = 0
+    
+    # Manejo seguro de la ventana para Windows
+    try:
+        page.window.maximized = True
+        page.window.maximizable = False
+    except Exception as e:
+        print(f"Aviso de ventana: {e}")
+        
+    # 2. Instanciamos la app
     app = Carniceria(page)
+    
+    # 3. Forzamos un renderizado final para evitar que quede cargando
+    page.update()
 
 if __name__ == "__main__":
     ft.run(main)
