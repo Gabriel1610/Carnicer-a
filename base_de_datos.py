@@ -122,7 +122,7 @@ class BaseDeDatos:
             if conexion: conexion.close()
 
     def registrar_usuario(self, nombre, apellido, email, password_plana):
-        """Hashea la contraseña y guarda el usuario inactivo esperando aprobación."""
+        """Hashea la contraseña y guarda el usuario. El primero será Administrador activo automáticamente."""
         conexion = None
         cursor = None
         try:
@@ -133,12 +133,32 @@ class BaseDeDatos:
             conexion = self.abrir()
             cursor = conexion.cursor()
             
-            # Por defecto, entra sin rol (NULL) y activo = 0
-            sql = """INSERT INTO usuario (nombre, apellido, email, password_hash) 
-                     VALUES (?, ?, ?, ?)"""
-            cursor.execute(sql, (nombre, apellido, email, password_hash))
+            # 1. Verificamos si ya existen usuarios en el sistema
+            cursor.execute("SELECT COUNT(*) FROM usuario")
+            cantidad_usuarios = cursor.fetchone()[0]
+            
+            if cantidad_usuarios == 0:
+                # ES EL PRIMER USUARIO: Lo hacemos Administrador y lo activamos
+                # Primero buscamos cuál es el rolID del Administrador
+                cursor.execute("SELECT rolID FROM rol WHERE nombre_rol = 'Administrador'")
+                resultado_rol = cursor.fetchone()
+                rol_admin_id = resultado_rol['rolID'] if resultado_rol else 1 # Por defecto 1 si algo falla
+                
+                sql = """INSERT INTO usuario (nombre, apellido, email, password_hash, rolID, activo) 
+                         VALUES (?, ?, ?, ?, ?, 1)"""
+                cursor.execute(sql, (nombre, apellido, email, password_hash, rol_admin_id))
+                mensaje = "¡Registro exitoso! Al ser el primer usuario, se te ha asignado el rol de Administrador."
+                
+            else:
+                # USUARIOS POSTERIORES: Entran sin rol y con activo = 0 (esperando aprobación)
+                sql = """INSERT INTO usuario (nombre, apellido, email, password_hash) 
+                         VALUES (?, ?, ?, ?)"""
+                cursor.execute(sql, (nombre, apellido, email, password_hash))
+                mensaje = "Registro exitoso. Esperando aprobación del Administrador."
+                
             conexion.commit()
-            return True, "Registro exitoso. Esperando aprobación del Administrador."
+            return True, mensaje
+            
         except sqlite3.IntegrityError:
             return False, "Ese correo electrónico ya está registrado."
         except Exception as e:
