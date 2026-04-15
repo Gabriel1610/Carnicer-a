@@ -4,7 +4,7 @@ import flet as ft
 # CLASE PARA GESTIÓN DE MENSAJES (MODALES)
 # ==========================================
 class GestorMensajes:
-    """Clase estática para mostrar mensajes modales adaptada a Flet 0.84+ y Modo Claro."""
+    """Clase estática para mostrar mensajes modales."""
     
     @staticmethod
     def mostrar(page: ft.Page, titulo: str, mensaje: str, tipo: str = "info"):
@@ -32,14 +32,15 @@ class GestorMensajes:
             bgcolor=ft.Colors.TRANSPARENT,
         )
 
+        # SOLUCIÓN: Solo cambiamos el estado a False y actualizamos. 
+        # Dejamos que Flet haga su animación tranquilo sin borrar el objeto a la fuerza.
         def cerrar_dialogo(e):
-            page.close(dialogo)
+            dialogo.open = False
+            page.update()
 
-        # Botón dinámico según el color del tipo de mensaje
         boton = ft.Button(
-            text="Aceptar", 
+            content=ft.Text("Aceptar", color=ft.Colors.WHITE),
             bgcolor=color_icono, 
-            color=ft.Colors.WHITE,
             on_click=cerrar_dialogo
         )
 
@@ -74,5 +75,7 @@ class GestorMensajes:
             padding=25
         )
 
-        # Disparamos el modal en la pantalla
-        page.open(dialogo)
+        # Usar la capa superpuesta (overlay)
+        page.overlay.append(dialogo)
+        dialogo.open = True
+        page.update()
