@@ -79,3 +79,38 @@ class GestorMensajes:
         page.overlay.append(dialogo)
         dialogo.open = True
         page.update()
+
+    @staticmethod
+    def mostrar_cargando(page: ft.Page, texto: str):
+        """Muestra un círculo de progreso con un mensaje."""
+        dialogo = ft.AlertDialog(
+            modal=True,
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.ProgressRing(width=40, height=40, stroke_width=4, color=ft.Colors.ORANGE_700),
+                        ft.Text(texto, size=16, weight=ft.FontWeight.W_500),
+                    ],
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                padding=30,
+                bgcolor=ft.Colors.WHITE,
+                border_radius=10,
+            ),
+            bgcolor=ft.Colors.TRANSPARENT,
+        )
+        
+        page.overlay.append(dialogo)
+        dialogo.open = True
+        page.update()
+        return dialogo # Lo devolvemos para poder cerrarlo luego
+
+    @staticmethod
+    def cerrar_cargando(page: ft.Page, dialogo: ft.AlertDialog):
+        """Cierra el diálogo de carga y lo remueve del overlay."""
+        dialogo.open = False
+        page.update()
+        if dialogo in page.overlay:
+            page.overlay.remove(dialogo)
+            page.update()

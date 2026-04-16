@@ -166,6 +166,43 @@ class BaseDeDatos:
         finally:
             if cursor: cursor.close()
             if conexion: conexion.close()
+    
+    def verificar_correo_existente(self, email):
+        """
+        Busca en la tabla de usuarios si el correo ingresado ya está registrado.
+        Retorna True si el correo existe, y False si está libre.
+        """
+        try:
+            # 1. Abrimos la conexión (Ajustá 'self.conectar()' al método que uses en tu clase)
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+
+            # 2. Preparamos la consulta segura. 
+            # NOTA: Si usás SQLite, cambiá el '%s' por un '?'
+            consulta = "SELECT COUNT(*) FROM usuario WHERE email = ?"
+            
+            # 3. Ejecutamos pasando el email como tupla de un solo elemento
+            cursor.execute(consulta, (email,))
+
+            # 4. Obtenemos el resultado (fetchone devuelve una tupla, ej: (1,) o (0,))
+            resultado = cursor.fetchone()
+
+            # 5. Cerramos la conexión para no saturar la base de datos
+            cursor.close()
+            conexion.close()
+
+            # 6. Evaluamos la respuesta
+            cantidad = resultado[0]
+            if cantidad > 0:
+                return True  # El correo YA EXISTE
+            else:
+                return False # El correo ESTÁ LIBRE
+
+        except Exception as e:
+            print(f">>> ERROR EN BD (verificar_correo_existente): {e}")
+            # Por seguridad, si la base de datos falla, devolvemos True para bloquear 
+            # el registro y evitar posibles duplicados accidentales o caídas del sistema.
+            return True
 
     def verificar_login(self, email, password_plana):
         """Verifica credenciales y si el usuario está activo."""
