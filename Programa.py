@@ -247,7 +247,89 @@ class Carniceria:
         )
     
     def seccion_inventario(self):
-        # 1. Buscador y Botón de Alta
+        # ==========================================
+        # LÓGICA DEL MODAL "NUEVO PRODUCTO"
+        # ==========================================
+        def abrir_modal_alta(e):
+            # 1. Definimos los campos de texto del formulario
+            txt_nombre_prod = ft.TextField(label="Nombre del Producto", width=400)
+            txt_precio = ft.TextField(label="Precio Unitario ($)", width=190, prefix_icon="$ ")
+            txt_stock = ft.TextField(label="Stock Inicial (kg/un)", width=190)
+            txt_critico = ft.TextField(label="Stock Crítico (Alerta)", width=190)
+
+            def cerrar_modal(e):
+                dialogo_alta.open = False
+                self.page.update()
+
+            def guardar_producto(e):
+                # Limpiamos los espacios vacíos
+                nombre = (txt_nombre_prod.value or "").strip()
+                precio_str = (txt_precio.value or "").strip()
+                stock_str = (txt_stock.value or "").strip()
+                critico_str = (txt_critico.value or "").strip()
+
+                # Validación 1: Campos incompletos
+                if not all([nombre, precio_str, stock_str, critico_str]):
+                    self.mostrar_alerta("Campos Incompletos", "Por favor, completá todos los datos del producto.", "error")
+                    return
+
+                # Validación 2: Textos en campos numéricos y valores negativos
+                try:
+                    precio = float(precio_str)
+                    stock = float(stock_str)
+                    critico = float(critico_str)
+
+                    if precio < 0 or stock < 0 or critico < 0:
+                        self.mostrar_alerta("Valores Inválidos", "No se permiten precios ni stocks negativos.", "error")
+                        return
+
+                    # (ACÁ PRÓXIMAMENTE IRA LA CONEXIÓN A LA BASE DE DATOS)
+                    # self.bd.agregar_producto(nombre, precio, stock, critico)
+
+                    # Si todo sale bien:
+                    cerrar_modal(e)
+                    self.mostrar_alerta("Producto Registrado", f"El artículo '{nombre}' fue agregado exitosamente.", "exito")
+
+                except ValueError:
+                    # Este error salta automáticamente si intentan convertir "abc" a float
+                    self.mostrar_alerta(
+                        "Error de Formato", 
+                        "El precio y los niveles de stock deben ser números válidos. Usá un punto (.) para los decimales.", 
+                        "error"
+                    )
+
+            # 2. Construimos la ventana modal
+            dialogo_alta = ft.AlertDialog(
+                modal=True,
+                title=ft.Row([
+                    ft.Icon(ft.Icons.ADD_BOX, color=ft.Colors.ORANGE_700),
+                    ft.Text("Alta de Nuevo Producto")
+                ]),
+                content=ft.Column([
+                    txt_nombre_prod,
+                    ft.Row([txt_precio, txt_stock], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    txt_critico
+                ], tight=True), # tight=True hace que la ventana abrace al contenido sin dejar espacio extra
+                actions=[
+                    ft.TextButton("Cancelar", on_click=cerrar_modal),
+                    ft.Button(
+                        content=ft.Text("Guardar Producto", color=ft.Colors.WHITE), 
+                        style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_600),
+                        on_click=guardar_producto
+                    )
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+
+            # 3. Mostramos el modal en pantalla
+            self.page.overlay.append(dialogo_alta)
+            dialogo_alta.open = True
+            self.page.update()
+
+        # ==========================================
+        # INTERFAZ PRINCIPAL DEL INVENTARIO
+        # ==========================================
+        
         txt_buscar = ft.TextField(
             label="Buscar por nombre o ID...",
             expand=True,
@@ -255,28 +337,26 @@ class Carniceria:
             on_change=lambda e: print(f"Buscando: {e.control.value}")
         )
         
+        # Enlazamos el botón con nuestra nueva función abrir_modal_alta
         btn_nuevo = ft.Button(
             content=ft.Row([
                 ft.Icon(ft.Icons.ADD, color=ft.Colors.WHITE),
                 ft.Text("Nuevo Producto", color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD)
             ], tight=True),
-            # Utilizamos ButtonStyle para asegurar la compatibilidad con las versiones modernas de Flet
             style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_700),
-            on_click=lambda _: print("Abriendo modal de Alta...")
+            on_click=abrir_modal_alta 
         )
 
-        # 2. Datos simulados
         productos = [
             {"id": 1, "nombre": "Costilla de Novillo", "precio": 8500, "stock": 45.5, "critico": 20},
-            {"id": 2, "nombre": "Vacio", "precio": 9200, "stock": 12.0, "critico": 25}, # ALERTA
-            {"id": 3, "nombre": "Leña de Quebracho", "precio": 450, "stock": 5.0, "critico": 10}, # ALERTA
+            {"id": 2, "nombre": "Vacio", "precio": 9200, "stock": 12.0, "critico": 25}, 
+            {"id": 3, "nombre": "Leña de Quebracho", "precio": 450, "stock": 5.0, "critico": 10}, 
         ]
 
         filas = []
         for p in productos:
             es_critico = p["stock"] <= p["critico"]
             color_texto = ft.Colors.RED_700 if es_critico else ft.Colors.BLACK
-            # Evitamos pasar "None" al weight para no generar excepciones en la interfaz gráfica
             grosor_texto = ft.FontWeight.BOLD if es_critico else ft.FontWeight.NORMAL
 
             filas.append(
@@ -301,12 +381,11 @@ class Carniceria:
             ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
             ft.Text("Listado de Productos y Suministros", size=20, weight=ft.FontWeight.W_600),
             
-            # SOLUCIÓN: Container expandido + Columna con Scroll
             ft.Container(
-                expand=True, # Este parámetro salva a la aplicación del colapso "Working..."
+                expand=True, 
                 content=ft.Column(
                     expand=True,
-                    scroll=ft.ScrollMode.AUTO, # Permite deslizar si hay muchos productos
+                    scroll=ft.ScrollMode.AUTO, 
                     controls=[
                         ft.DataTable(
                             columns=[
