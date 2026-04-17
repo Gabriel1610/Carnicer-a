@@ -76,7 +76,7 @@ class BaseDeDatos:
                     stock_critico REAL NOT NULL,
                     activo INTEGER NOT NULL DEFAULT 1,
                     CONSTRAINT chk_producto_nombre_no_vacio CHECK (TRIM(nombre) <> ''),
-                    CONSTRAINT chk_precio_positivo CHECK (precio_unitario >= 0),
+                    CONSTRAINT chk_precio_positivo CHECK (precio_unitario > 0),
                     CONSTRAINT chk_stock_actual_positivo CHECK (stock_actual >= 0),
                     CONSTRAINT chk_stock_critico_positivo CHECK (stock_critico >= 0),
                     CONSTRAINT chk_producto_activo_booleano CHECK (activo IN (0, 1))
@@ -167,13 +167,60 @@ class BaseDeDatos:
             if cursor: cursor.close()
             if conexion: conexion.close()
     
+    def agregar_producto(self, nombre, precio, stock, critico):
+        """Inserta un nuevo producto en la base de datos local."""
+        try:
+            conexion = self.abrir() # Asegurate que este nombre coincida con tu método de conexión
+            cursor = conexion.cursor()
+            consulta = """INSERT INTO producto (nombre, precio_unitario, stock_actual, stock_critico) 
+                          VALUES (?, ?, ?, ?)"""
+            cursor.execute(consulta, (nombre, precio, stock, critico))
+            conexion.commit()
+            cursor.close()
+            conexion.close()
+            return True, "Producto agregado correctamente."
+        except Exception as e:
+            return False, f"Error al guardar: {e}"
+    
+    def editar_producto(self, producto_id, nombre, precio, stock, critico):
+        """Actualiza los datos de un producto existente en la base de datos."""
+        try:
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+            consulta = """UPDATE producto 
+                          SET nombre = ?, precio_unitario = ?, stock_actual = ?, stock_critico = ?
+                          WHERE productoID = ?"""
+            cursor.execute(consulta, (nombre, precio, stock, critico, producto_id))
+            conexion.commit()
+            cursor.close()
+            conexion.close()
+            return True, "Producto actualizado correctamente."
+        except Exception as e:
+            return False, f"Error al actualizar: {e}"
+
+    def obtener_productos(self):
+        """Recupera la lista de todos los productos activos."""
+        try:
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+            # Seleccionamos solo los productos con activo = 1 según RF02
+            cursor.execute("SELECT productoID, nombre, precio_unitario, stock_actual, stock_critico FROM producto WHERE activo = 1")
+            productos = cursor.fetchall()
+            cursor.close()
+            conexion.close()
+            # Convertimos a lista de diccionarios para que sea fácil de leer en Flet
+            return [{"id": p[0], "nombre": p[1], "precio": p[2], "stock": p[3], "critico": p[4]} for p in productos]
+        except Exception as e:
+            print(f"Error al obtener productos: {e}")
+            return []
+    
     def verificar_correo_existente(self, email):
         """
         Busca en la tabla de usuarios si el correo ingresado ya está registrado.
         Retorna True si el correo existe, y False si está libre.
         """
         try:
-            # 1. Abrimos la conexión (Ajustá 'self.conectar()' al método que uses en tu clase)
+            # 1. Abrimos la conexión (Ajustá 'self.abrir()' al método que uses en tu clase)
             conexion = self.abrir()
             cursor = conexion.cursor()
 
