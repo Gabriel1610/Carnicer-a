@@ -246,244 +246,218 @@ class Carniceria:
             ]
         )
     
-    def seccion_inventario(self):
-        # ==========================================
-        # LÓGICA DEL MODAL "NUEVO PRODUCTO"
-        # ==========================================
-        def abrir_modal_alta(e):
-            txt_nombre_prod = ft.TextField(label="Nombre del Producto", width=400)
-            txt_precio = ft.TextField(label="Precio Unitario ($)", width=190, prefix_icon="$ ")
-            txt_stock = ft.TextField(label="Stock Inicial (kg/un)", width=190)
-            txt_critico = ft.TextField(label="Stock Crítico (Alerta)", width=190)
+    def seccion_usuarios(self):
+        # 1. Recuperamos todos los usuarios de la base de datos
+        usuarios_totales = self.bd.obtener_usuarios()
+        
+        # FILTRO DE SEGURIDAD: Solo mostramos 'Cajeros' o usuarios sin rol asignado aún
+        # Los 'Administradores' no aparecen en la lista
+        usuarios_visibles = [u for u in usuarios_totales if u["rol_nombre"] != "Administrador"]
 
-            def cerrar_modal(e):
-                dialogo_alta.open = False
-                self.page.update()
-
-            def guardar_producto(e):
-                nombre = (txt_nombre_prod.value or "").strip()
-                precio_str = (txt_precio.value or "").strip()
-                stock_str = (txt_stock.value or "").strip()
-                critico_str = (txt_critico.value or "").strip()
-
-                if not all([nombre, precio_str, stock_str, critico_str]):
-                    self.mostrar_alerta("Campos Incompletos", "Por favor, completá todos los datos del producto.", "error")
-                    return
-
-                try:
-                    precio = float(precio_str)
-                    stock = float(stock_str)
-                    critico = float(critico_str)
-
-                    if precio <= 0 or stock < 0 or critico < 0:
-                        self.mostrar_alerta("Valores Inválidos", "No se permiten precios ni stocks negativos.", "error")
-                        return
-
-                    exito, msj = self.bd.agregar_producto(nombre, precio, stock, critico)
-
-                    if exito:
-                        cerrar_modal(e)
-                        self.contenedor_principal.content = self.seccion_inventario()
-                        self.contenedor_principal.update()
-                        self.mostrar_alerta("Producto Registrado", msj, "exito")
-                    else:
-                        self.mostrar_alerta("Error en Base de Datos", msj, "error")
-
-                except ValueError:
-                    self.mostrar_alerta("Error de Formato", "El precio y los niveles de stock deben ser números válidos.", "error")
-
-            dialogo_alta = ft.AlertDialog(
-                modal=True,
-                title=ft.Row([ft.Icon(ft.Icons.ADD_BOX, color=ft.Colors.ORANGE_700), ft.Text("Alta de Nuevo Producto")]),
-                content=ft.Column([
-                    txt_nombre_prod,
-                    ft.Row([txt_precio, txt_stock], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    txt_critico
-                ], tight=True), 
-                actions=[
-                    ft.TextButton("Cancelar", on_click=cerrar_modal),
-                    ft.Button(content=ft.Text("Guardar Producto", color=ft.Colors.WHITE), style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_600), on_click=guardar_producto)
+        def abrir_modal_gestion(e, usuario_actual):
+            txt_nombre = ft.TextField(label="Empleado", value=usuario_actual["nombre"], read_only=True, width=300)
+            
+            # Selectores del formulario
+            dd_rol = ft.Dropdown(
+                label="Asignar Rol",
+                width=300,
+                options=[
+                    ft.dropdown.Option("1", "Administrador"),
+                    ft.dropdown.Option("2", "Cajero")
                 ],
-                actions_alignment=ft.MainAxisAlignment.END,
+                value=str(usuario_actual["rolID"]) if usuario_actual["rolID"] else None
             )
 
-            self.page.overlay.append(dialogo_alta)
-            dialogo_alta.open = True
-            self.page.update()
-
-        # ==========================================
-        # LÓGICA DEL MODAL "EDITAR PRODUCTO"
-        # ==========================================
-        def abrir_modal_edicion(e, producto_actual):
-            # 1. Cargamos los campos con los datos actuales del producto
-            txt_nombre_prod = ft.TextField(label="Nombre del Producto", width=400, value=producto_actual["nombre"])
-            txt_precio = ft.TextField(label="Precio Unitario ($)", width=190, prefix_icon="$ ", value=str(producto_actual["precio"]))
-            txt_stock = ft.TextField(label="Stock Actual (kg/un)", width=190, value=str(producto_actual["stock"]))
-            txt_critico = ft.TextField(label="Stock Crítico (Alerta)", width=190, value=str(producto_actual["critico"]))
-
-            def cerrar_modal_edicion(e):
-                dialogo_edicion.open = False
-                self.page.update()
-
-            def guardar_edicion(e):
-                nombre = (txt_nombre_prod.value or "").strip()
-                precio_str = (txt_precio.value or "").strip()
-                stock_str = (txt_stock.value or "").strip()
-                critico_str = (txt_critico.value or "").strip()
-
-                if not all([nombre, precio_str, stock_str, critico_str]):
-                    self.mostrar_alerta("Campos Incompletos", "Completá todos los datos.", "error")
-                    return
-
-                try:
-                    precio = float(precio_str)
-                    stock = float(stock_str)
-                    critico = float(critico_str)
-
-                    if precio <= 0 or stock < 0 or critico < 0:
-                        self.mostrar_alerta("Valores Inválidos", "No se permiten valores negativos.", "error")
-                        return
-
-                    # Llamamos a la base de datos pasándole el ID que guardamos en producto_actual
-                    exito, msj = self.bd.editar_producto(producto_actual["id"], nombre, precio, stock, critico)
-
-                    if exito:
-                        cerrar_modal_edicion(e)
-                        # Refrescamos la pantalla para ver los cambios
-                        self.contenedor_principal.content = self.seccion_inventario()
-                        self.contenedor_principal.update()
-                        self.mostrar_alerta("Producto Actualizado", msj, "exito")
-                    else:
-                        self.mostrar_alerta("Error en Base de Datos", msj, "error")
-
-                except ValueError:
-                    self.mostrar_alerta("Error de Formato", "El precio y los niveles de stock deben ser números válidos.", "error")
-
-            dialogo_edicion = ft.AlertDialog(
-                modal=True,
-                title=ft.Row([ft.Icon(ft.Icons.EDIT, color=ft.Colors.BLUE_700), ft.Text(f"Editar Producto #{producto_actual['id']}")]),
-                content=ft.Column([
-                    txt_nombre_prod,
-                    ft.Row([txt_precio, txt_stock], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    txt_critico
-                ], tight=True), 
-                actions=[
-                    ft.TextButton("Cancelar", on_click=cerrar_modal_edicion),
-                    ft.Button(content=ft.Text("Guardar Cambios", color=ft.Colors.WHITE), style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_600), on_click=guardar_edicion)
+            dd_estado = ft.Dropdown(
+                label="Estado de Acceso",
+                width=300,
+                options=[
+                    ft.dropdown.Option("1", "Activo (Aprobado)"),
+                    ft.dropdown.Option("0", "Inactivo / Suspendido")
                 ],
-                actions_alignment=ft.MainAxisAlignment.END,
+                value="1" if usuario_actual["activo"] == 1 else "0"
             )
 
-            self.page.overlay.append(dialogo_edicion)
-            dialogo_edicion.open = True
-            self.page.update()
+            # LÓGICA DE BLOQUEO: Si se elige 'Administrador', el estado se clava en 'Activo'
+            def controlar_bloqueo_admin(e):
+                if dd_rol.value == "1": # 1 es el ID de Administrador
+                    dd_estado.value = "1"
+                    dd_estado.disabled = True
+                else:
+                    dd_estado.disabled = False
+                self.page.update()
 
-        # ==========================================
-        # INTERFAZ PRINCIPAL DEL INVENTARIO
-        # ==========================================
-        
-        productos_reales = self.bd.obtener_productos()
-
-        def generar_filas(termino=""):
-            termino = termino.lower() 
-            filas_actualizadas = []
+            dd_rol.on_change = controlar_bloqueo_admin
             
-            for p in productos_reales:
-                if termino in str(p["id"]).lower() or termino in p["nombre"].lower():
-                    es_critico = p["stock"] <= p["critico"]
-                    color_texto = ft.Colors.RED_700 if es_critico else ft.Colors.BLACK
-                    grosor_texto = ft.FontWeight.BOLD if es_critico else ft.FontWeight.NORMAL
+            # Ejecutamos la lógica una vez al abrir por si ya viene con datos
+            if dd_rol.value == "1":
+                dd_estado.disabled = True
 
-                    filas_actualizadas.append(
-                        ft.DataRow(
-                            cells=[
-                                ft.DataCell(ft.Text(str(p["id"]))),
-                                ft.DataCell(ft.Text(p["nombre"], weight=grosor_texto, color=color_texto)),
-                                ft.DataCell(ft.Text(f"$ {p['precio']:.2f}")),
-                                ft.DataCell(ft.Text(f"{p['stock']} kg", color=color_texto, weight=grosor_texto)),
-                                
-                                # NUEVA CELDA: Stock Crítico
-                                ft.DataCell(ft.Text(f"{p['critico']} kg", color=ft.Colors.GREY_700)),
-                                
-                                ft.DataCell(
-                                    ft.Row([
-                                        ft.IconButton(
-                                            icon=ft.Icons.EDIT_OUTLINED, 
-                                            tooltip="Editar", 
-                                            on_click=lambda e, prod=p: abrir_modal_edicion(e, prod)
-                                        ),
-                                        ft.IconButton(icon=ft.Icons.ARCHIVE_OUTLINED, icon_color=ft.Colors.GREY_600, tooltip="Archivar")
-                                    ])
-                                ),
-                            ]
-                        )
-                    )
-            return filas_actualizadas
+            def guardar_permisos(e):
+                nuevo_rol = int(dd_rol.value) if dd_rol.value else None
+                nuevo_estado = int(dd_estado.value) if dd_estado.value else 0
 
-        def realizar_busqueda(e):
-            tabla_inventario.rows = generar_filas(e.control.value)
+                if nuevo_estado == 1 and nuevo_rol is None:
+                    self.mostrar_alerta("Atención", "Asigná un rol antes de aprobar el acceso.", "error")
+                    return
+
+                exito, msj = self.bd.actualizar_permisos_usuario(usuario_actual["id"], nuevo_rol, nuevo_estado)
+                
+                if exito:
+                    dialogo_gestion.open = False
+                    # Al refrescar, si el rol cambió a Admin, desaparecerá de la lista
+                    self.contenedor_principal.content = self.seccion_usuarios()
+                    self.contenedor_principal.update()
+                    self.mostrar_alerta("Cambios Guardados", msj, "exito")
+                else:
+                    self.mostrar_alerta("Error", msj, "error")
+
+            dialogo_gestion = ft.AlertDialog(
+                modal=True,
+                title=ft.Row([ft.Icon(ft.Icons.SECURITY), ft.Text("Seguridad de Cuenta")]),
+                content=ft.Column([txt_nombre, dd_rol, dd_estado], tight=True),
+                actions=[
+                    ft.TextButton("Cancelar", on_click=lambda _: setattr(dialogo_gestion, 'open', False) or self.page.update()),
+                    ft.Button("Guardar", bgcolor=ft.Colors.BLUE_600, color=ft.Colors.WHITE, on_click=guardar_permisos)
+                ]
+            )
+
+            self.page.overlay.append(dialogo_gestion)
+            dialogo_gestion.open = True
             self.page.update()
 
-        txt_buscar = ft.TextField(
-            label="Buscar por nombre o ID...",
-            expand=True,
-            prefix_icon=ft.Icons.SEARCH,
-            on_change=realizar_busqueda  
-        )
-        
-        btn_nuevo = ft.Button(
-            content=ft.Row([
-                ft.Icon(ft.Icons.ADD, color=ft.Colors.WHITE),
-                ft.Text("Nuevo Producto", color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD)
-            ], tight=True),
-            style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_700),
-            on_click=abrir_modal_alta 
-        )
-
-        def ordenar_tabla(e, llave):
-            tabla_inventario.sort_column_index = e.column_index
-            tabla_inventario.sort_ascending = e.ascending
-            productos_reales.sort(key=lambda x: x[llave], reverse=not e.ascending)
-            
-            texto_actual = txt_buscar.value or ""
-            tabla_inventario.rows = generar_filas(texto_actual)
-            self.page.update()
-
-        tabla_inventario = ft.DataTable(
-            columns=[
-                ft.DataColumn(ft.Text("ID"), numeric=True, on_sort=lambda e: ordenar_tabla(e, "id")),
-                ft.DataColumn(ft.Text("Producto"), on_sort=lambda e: ordenar_tabla(e, "nombre")),
-                ft.DataColumn(ft.Text("Precio Unitario"), numeric=True, on_sort=lambda e: ordenar_tabla(e, "precio")),
-                ft.DataColumn(ft.Text("Stock Actual"), numeric=True, on_sort=lambda e: ordenar_tabla(e, "stock")),
-                
-                # NUEVA COLUMNA: Encabezado de Stock Crítico
-                ft.DataColumn(ft.Text("Stock Crítico"), numeric=True, on_sort=lambda e: ordenar_tabla(e, "critico")),
-                
-                ft.DataColumn(ft.Text("Acciones")),
-            ],
-            rows=generar_filas(), 
-            sort_column_index=0,
-            sort_ascending=True
-        )
+        # Generación de la tabla con los usuarios filtrados
+        filas = []
+        for u in usuarios_visibles:
+            filas.append(
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(str(u["id"]))),
+                    ft.DataCell(ft.Text(u["nombre"])),
+                    ft.DataCell(ft.Text(u["rol_nombre"])),
+                    ft.DataCell(ft.Text("Activo" if u["activo"] == 1 else "Inactivo")),
+                    ft.DataCell(ft.IconButton(ft.Icons.MANAGE_ACCOUNTS, on_click=lambda e, user=u: abrir_modal_gestion(e, user)))
+                ])
+            )
 
         return ft.Column([
-            ft.Row([txt_buscar, btn_nuevo], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
-            ft.Text("Listado de Productos y Suministros", size=20, weight=ft.FontWeight.W_600),
-            
-            ft.Container(
-                expand=True, 
-                content=ft.Column(
-                    expand=True,
-                    scroll=ft.ScrollMode.AUTO, 
-                    controls=[tabla_inventario]
-                ),
-                border=ft.border.all(1, ft.Colors.GREY_300),
-                border_radius=10,
-                padding=10
+            ft.Text("Gestión de Cajeros", size=24, weight=ft.FontWeight.BOLD),
+            ft.DataTable(
+                columns=[ft.DataColumn(ft.Text("ID")), ft.DataColumn(ft.Text("Nombre")), ft.DataColumn(ft.Text("Rol")), ft.DataColumn(ft.Text("Estado")), ft.DataColumn(ft.Text("Acción"))],
+                rows=filas
             )
         ], expand=True)
 
+    def seccion_usuarios(self):
+        # 1. Recuperamos los usuarios y filtramos para mostrar solo Cajeros o sin rol
+        usuarios_totales = self.bd.obtener_usuarios()
+        usuarios_visibles = [u for u in usuarios_totales if u["rol_nombre"] != "Administrador"]
+
+        def abrir_modal_gestion(e, usuario_actual):
+            txt_nombre = ft.TextField(label="Empleado", value=usuario_actual["nombre"], read_only=True, width=300)
+            
+            # Selector de Rol
+            dd_rol = ft.Dropdown(
+                label="Asignar Rol",
+                width=300,
+                options=[
+                    ft.dropdown.Option("1", "Administrador"),
+                    ft.dropdown.Option("2", "Cajero")
+                ],
+                value=str(usuario_actual["rolID"]) if usuario_actual["rolID"] else None
+            )
+
+            # Selector de Estado
+            dd_estado = ft.Dropdown(
+                label="Estado de Acceso",
+                width=300,
+                options=[
+                    ft.dropdown.Option("1", "Activo (Aprobado)"),
+                    ft.dropdown.Option("0", "Inactivo / Suspendido")
+                ],
+                value="1" if usuario_actual["activo"] == 1 else "0"
+            )
+
+            # LÓGICA DE BLOQUEO CORREGIDA
+            def controlar_bloqueo_admin(e):
+                if dd_rol.value == "1":  # Si se selecciona Administrador
+                    dd_estado.value = "1" # FORZAMOS el valor a Activo inmediatamente
+                    dd_estado.disabled = True # Bloqueamos el control
+                else:
+                    dd_estado.disabled = False # Liberamos para Cajeros
+                
+                # ACTUALIZACIÓN CRUCIAL: Refrescamos solo el control de estado
+                dd_estado.update()
+
+            dd_rol.on_change = controlar_bloqueo_admin
+            
+            # Verificación inicial por si ya es admin (seguridad extra)
+            if dd_rol.value == "1":
+                dd_estado.value = "1"
+                dd_estado.disabled = True
+
+            def guardar_permisos(e):
+                # Tomamos los valores actuales de los controles
+                nuevo_rol = int(dd_rol.value) if dd_rol.value else None
+                nuevo_estado = int(dd_estado.value) if dd_estado.value else 0
+
+                if nuevo_estado == 1 and nuevo_rol is None:
+                    self.mostrar_alerta("Atención", "Asigná un rol antes de aprobar el acceso.", "error")
+                    return
+
+                exito, msj = self.bd.actualizar_permisos_usuario(usuario_actual["id"], nuevo_rol, nuevo_estado)
+                
+                if exito:
+                    dialogo_gestion.open = False
+                    # Refrescamos la sección completa: el nuevo Admin ya no saldrá en la lista
+                    self.contenedor_principal.content = self.seccion_usuarios()
+                    self.contenedor_principal.update()
+                    self.mostrar_alerta("Cambios Guardados", msj, "exito")
+                else:
+                    self.mostrar_alerta("Error", msj, "error")
+
+            dialogo_gestion = ft.AlertDialog(
+                modal=True,
+                title=ft.Row([ft.Icon(ft.Icons.SECURITY, color=ft.Colors.BLUE_700), ft.Text("Seguridad de Cuenta")]),
+                content=ft.Column([txt_nombre, dd_rol, dd_estado], tight=True),
+                actions=[
+                    ft.TextButton("Cancelar", on_click=lambda _: setattr(dialogo_gestion, 'open', False) or self.page.update()),
+                    ft.Button("Guardar", bgcolor=ft.Colors.BLUE_600, color=ft.Colors.WHITE, on_click=guardar_permisos)
+                ],
+                actions_alignment=ft.MainAxisAlignment.END
+            )
+
+            self.page.overlay.append(dialogo_gestion)
+            dialogo_gestion.open = True
+            self.page.update()
+
+        # Construcción de la tabla
+        filas = []
+        for u in usuarios_visibles:
+            filas.append(
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(str(u["id"]))),
+                    ft.DataCell(ft.Text(u["nombre"], weight=ft.FontWeight.BOLD)),
+                    ft.DataCell(ft.Text(u["rol_nombre"] if u["rol_nombre"] else "Pendiente")),
+                    ft.DataCell(ft.Text("Activo" if u["activo"] == 1 else "Inactivo", 
+                                       color=ft.Colors.GREEN_700 if u["activo"] == 1 else ft.Colors.RED_700)),
+                    ft.DataCell(ft.IconButton(ft.Icons.MANAGE_ACCOUNTS, on_click=lambda e, user=u: abrir_modal_gestion(e, user)))
+                ])
+            )
+
+        return ft.Column([
+            ft.Text("Gestión de Cajeros", size=24, weight=ft.FontWeight.BOLD),
+            ft.DataTable(
+                columns=[
+                    ft.DataColumn(ft.Text("ID")), 
+                    ft.DataColumn(ft.Text("Nombre")), 
+                    ft.DataColumn(ft.Text("Rol")), 
+                    ft.DataColumn(ft.Text("Estado")), 
+                    ft.DataColumn(ft.Text("Acción"))
+                ],
+                rows=filas
+            )
+        ], expand=True)
+    
     # ==========================================
     # VISTAS DE ADMINISTRADOR
     # ==========================================
@@ -557,11 +531,11 @@ class Carniceria:
             elif idx == 1:
                 self.contenedor_principal.content = self.seccion_inventario()
             elif idx == 2:
-                self.contenedor_principal.content = ft.Text("Sección de Usuarios en construcción...")
+                # ACÁ CONECTAMOS LA NUEVA SECCIÓN DE USUARIOS
+                self.contenedor_principal.content = self.seccion_usuarios()
             elif idx == 3:
                 self.contenedor_principal.content = ft.Text("Sección de Reportes en construcción...")
             
-            # Solo actualizamos el contenedor, no toda la página
             self.contenedor_principal.update()
 
         # 3. El menú lateral que dispara la función de arriba

@@ -167,6 +167,64 @@ class BaseDeDatos:
             if cursor: cursor.close()
             if conexion: conexion.close()
     
+    def obtener_usuarios(self):
+        """Recupera la lista de todos los usuarios registrados junto con su rol."""
+        try:
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+            consulta = """
+                SELECT u.userID, u.nombre, u.apellido, u.email, u.activo, u.rolID, r.nombre_rol
+                FROM usuario u
+                LEFT JOIN rol r ON u.rolID = r.rolID
+            """
+            cursor.execute(consulta)
+            usuarios = cursor.fetchall()
+            cursor.close()
+            conexion.close()
+            
+            # Formateamos los datos para la interfaz
+            return [{
+                "id": u[0], 
+                "nombre": f"{u[1]} {u[2]}", 
+                "email": u[3], 
+                "activo": u[4], 
+                "rolID": u[5], 
+                "rol_nombre": u[6] or "Sin Asignar"
+            } for u in usuarios]
+        except Exception as e:
+            print(f"Error al obtener usuarios: {e}")
+            return []
+
+    def actualizar_permisos_usuario(self, user_id, rol_id, activo):
+        """Actualiza el rol y el estado de acceso de un empleado."""
+        try:
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+            consulta = "UPDATE usuario SET rolID = ?, activo = ? WHERE userID = ?"
+            cursor.execute(consulta, (rol_id, activo, user_id))
+            conexion.commit()
+            cursor.close()
+            conexion.close()
+            return True, "Permisos del usuario actualizados correctamente."
+        except Exception as e:
+            return False, f"Error al actualizar permisos: {e}"
+    
+    def archivar_producto(self, producto_id):
+        """Realiza una baja lógica cambiando el estado del producto a inactivo (0)."""
+        try:
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+            
+            consulta = "UPDATE producto SET activo = 0 WHERE productoID = ?"
+            cursor.execute(consulta, (producto_id,))
+            
+            conexion.commit()
+            cursor.close()
+            conexion.close()
+            return True, "El producto fue archivado y retirado del catálogo."
+        except Exception as e:
+            return False, f"Error al archivar: {e}"
+    
     def agregar_producto(self, nombre, precio, stock, critico):
         """Inserta un nuevo producto en la base de datos local."""
         try:
