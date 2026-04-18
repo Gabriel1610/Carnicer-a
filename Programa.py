@@ -247,107 +247,6 @@ class Carniceria:
         )
     
     def seccion_usuarios(self):
-        # 1. Recuperamos todos los usuarios de la base de datos
-        usuarios_totales = self.bd.obtener_usuarios()
-        
-        # FILTRO DE SEGURIDAD: Solo mostramos 'Cajeros' o usuarios sin rol asignado aún
-        # Los 'Administradores' no aparecen en la lista
-        usuarios_visibles = [u for u in usuarios_totales if u["rol_nombre"] != "Administrador"]
-
-        def abrir_modal_gestion(e, usuario_actual):
-            txt_nombre = ft.TextField(label="Empleado", value=usuario_actual["nombre"], read_only=True, width=300)
-            
-            # Selectores del formulario
-            dd_rol = ft.Dropdown(
-                label="Asignar Rol",
-                width=300,
-                options=[
-                    ft.dropdown.Option("1", "Administrador"),
-                    ft.dropdown.Option("2", "Cajero")
-                ],
-                value=str(usuario_actual["rolID"]) if usuario_actual["rolID"] else None
-            )
-
-            dd_estado = ft.Dropdown(
-                label="Estado de Acceso",
-                width=300,
-                options=[
-                    ft.dropdown.Option("1", "Activo (Aprobado)"),
-                    ft.dropdown.Option("0", "Inactivo / Suspendido")
-                ],
-                value="1" if usuario_actual["activo"] == 1 else "0"
-            )
-
-            # LÓGICA DE BLOQUEO: Si se elige 'Administrador', el estado se clava en 'Activo'
-            def controlar_bloqueo_admin(e):
-                if dd_rol.value == "1": # 1 es el ID de Administrador
-                    dd_estado.value = "1"
-                    dd_estado.disabled = True
-                else:
-                    dd_estado.disabled = False
-                self.page.update()
-
-            dd_rol.on_change = controlar_bloqueo_admin
-            
-            # Ejecutamos la lógica una vez al abrir por si ya viene con datos
-            if dd_rol.value == "1":
-                dd_estado.disabled = True
-
-            def guardar_permisos(e):
-                nuevo_rol = int(dd_rol.value) if dd_rol.value else None
-                nuevo_estado = int(dd_estado.value) if dd_estado.value else 0
-
-                if nuevo_estado == 1 and nuevo_rol is None:
-                    self.mostrar_alerta("Atención", "Asigná un rol antes de aprobar el acceso.", "error")
-                    return
-
-                exito, msj = self.bd.actualizar_permisos_usuario(usuario_actual["id"], nuevo_rol, nuevo_estado)
-                
-                if exito:
-                    dialogo_gestion.open = False
-                    # Al refrescar, si el rol cambió a Admin, desaparecerá de la lista
-                    self.contenedor_principal.content = self.seccion_usuarios()
-                    self.contenedor_principal.update()
-                    self.mostrar_alerta("Cambios Guardados", msj, "exito")
-                else:
-                    self.mostrar_alerta("Error", msj, "error")
-
-            dialogo_gestion = ft.AlertDialog(
-                modal=True,
-                title=ft.Row([ft.Icon(ft.Icons.SECURITY), ft.Text("Seguridad de Cuenta")]),
-                content=ft.Column([txt_nombre, dd_rol, dd_estado], tight=True),
-                actions=[
-                    ft.TextButton("Cancelar", on_click=lambda _: setattr(dialogo_gestion, 'open', False) or self.page.update()),
-                    ft.Button("Guardar", bgcolor=ft.Colors.BLUE_600, color=ft.Colors.WHITE, on_click=guardar_permisos)
-                ]
-            )
-
-            self.page.overlay.append(dialogo_gestion)
-            dialogo_gestion.open = True
-            self.page.update()
-
-        # Generación de la tabla con los usuarios filtrados
-        filas = []
-        for u in usuarios_visibles:
-            filas.append(
-                ft.DataRow(cells=[
-                    ft.DataCell(ft.Text(str(u["id"]))),
-                    ft.DataCell(ft.Text(u["nombre"])),
-                    ft.DataCell(ft.Text(u["rol_nombre"])),
-                    ft.DataCell(ft.Text("Activo" if u["activo"] == 1 else "Inactivo")),
-                    ft.DataCell(ft.IconButton(ft.Icons.MANAGE_ACCOUNTS, on_click=lambda e, user=u: abrir_modal_gestion(e, user)))
-                ])
-            )
-
-        return ft.Column([
-            ft.Text("Gestión de Cajeros", size=24, weight=ft.FontWeight.BOLD),
-            ft.DataTable(
-                columns=[ft.DataColumn(ft.Text("ID")), ft.DataColumn(ft.Text("Nombre")), ft.DataColumn(ft.Text("Rol")), ft.DataColumn(ft.Text("Estado")), ft.DataColumn(ft.Text("Acción"))],
-                rows=filas
-            )
-        ], expand=True)
-
-    def seccion_usuarios(self):
         # 1. Recuperamos los usuarios y filtramos para mostrar solo Cajeros o sin rol
         usuarios_totales = self.bd.obtener_usuarios()
         usuarios_visibles = [u for u in usuarios_totales if u["rol_nombre"] != "Administrador"]
@@ -355,10 +254,8 @@ class Carniceria:
         def abrir_modal_gestion(e, usuario_actual):
             txt_nombre = ft.TextField(label="Empleado", value=usuario_actual["nombre"], read_only=True, width=300)
             
-            # Selector de Rol
             dd_rol = ft.Dropdown(
-                label="Asignar Rol",
-                width=300,
+                label="Asignar Rol", width=300,
                 options=[
                     ft.dropdown.Option("1", "Administrador"),
                     ft.dropdown.Option("2", "Cajero")
@@ -366,10 +263,8 @@ class Carniceria:
                 value=str(usuario_actual["rolID"]) if usuario_actual["rolID"] else None
             )
 
-            # Selector de Estado
             dd_estado = ft.Dropdown(
-                label="Estado de Acceso",
-                width=300,
+                label="Estado de Acceso", width=300,
                 options=[
                     ft.dropdown.Option("1", "Activo (Aprobado)"),
                     ft.dropdown.Option("0", "Inactivo / Suspendido")
@@ -377,51 +272,102 @@ class Carniceria:
                 value="1" if usuario_actual["activo"] == 1 else "0"
             )
 
-            # LÓGICA DE BLOQUEO CORREGIDA
             def controlar_bloqueo_admin(e):
-                if dd_rol.value == "1":  # Si se selecciona Administrador
-                    dd_estado.value = "1" # FORZAMOS el valor a Activo inmediatamente
-                    dd_estado.disabled = True # Bloqueamos el control
+                if dd_rol.value == "1":
+                    dd_estado.value = "1"
+                    dd_estado.disabled = True
                 else:
-                    dd_estado.disabled = False # Liberamos para Cajeros
-                
-                # ACTUALIZACIÓN CRUCIAL: Refrescamos solo el control de estado
+                    dd_estado.disabled = False
                 dd_estado.update()
 
             dd_rol.on_change = controlar_bloqueo_admin
             
-            # Verificación inicial por si ya es admin (seguridad extra)
             if dd_rol.value == "1":
                 dd_estado.value = "1"
                 dd_estado.disabled = True
 
+            # Creamos una función dedicada y limpia para cerrar este modal
+            def cerrar_modal(e=None):
+                dialogo_gestion.open = False
+                self.page.update()
+
             def guardar_permisos(e):
-                # Tomamos los valores actuales de los controles
-                nuevo_rol = int(dd_rol.value) if dd_rol.value else None
+                nuevo_rol_id = int(dd_rol.value) if dd_rol.value else None
                 nuevo_estado = int(dd_estado.value) if dd_estado.value else 0
 
-                if nuevo_estado == 1 and nuevo_rol is None:
+                if nuevo_estado == 1 and nuevo_rol_id is None:
                     self.mostrar_alerta("Atención", "Asigná un rol antes de aprobar el acceso.", "error")
                     return
 
-                exito, msj = self.bd.actualizar_permisos_usuario(usuario_actual["id"], nuevo_rol, nuevo_estado)
-                
-                if exito:
-                    dialogo_gestion.open = False
-                    # Refrescamos la sección completa: el nuevo Admin ya no saldrá en la lista
-                    self.contenedor_principal.content = self.seccion_usuarios()
-                    self.contenedor_principal.update()
-                    self.mostrar_alerta("Cambios Guardados", msj, "exito")
-                else:
-                    self.mostrar_alerta("Error", msj, "error")
+                # ¡EL GRAN CAMBIO! Cerramos la ventana de edición INMEDIATAMENTE
+                cerrar_modal()
+
+                nombre_rol = "Administrador" if nuevo_rol_id == 1 else "Cajero"
+                nombre_estado = "ACTIVO / APROBADO" if nuevo_estado == 1 else "INACTIVO / SUSPENDIDO"
+
+                # Al estar la pantalla limpia, el loader toma el control sin chocar con otra ventana
+                loader = GestorMensajes.mostrar_cargando(self.page, "Conectando al servidor y notificando...")
+
+                def tarea_notificar_y_guardar():
+                    try:
+                        # Envío del correo (Es normal que demore entre 3 y 6 segundos)
+                        msg = MIMEMultipart()
+                        msg['From'] = REMITENTE
+                        msg['To'] = usuario_actual["email"]
+                        msg['Subject'] = "Actualización de Permisos - Fuego & Fierro"
+                        
+                        cuerpo = (
+                            f"Hola {usuario_actual['nombre']},\n\n"
+                            f"Te informamos que se han actualizado tus permisos en el sistema:\n"
+                            f"- Nuevo Rol: {nombre_rol}\n"
+                            f"- Estado de Acceso: {nombre_estado}\n\n"
+                            f"Si tu estado es ACTIVO, ya podés ingresar con tus credenciales habituales.\n"
+                            f"Saludos, Equipo de Fuego & Fierro."
+                        )
+                        msg.attach(MIMEText(cuerpo, 'plain', 'utf-8'))
+
+                        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
+                        server.starttls()
+                        server.login(REMITENTE, PASSWORD)
+                        server.send_message(msg)
+                        server.quit()
+
+                        # Si se envió, guardamos en la base
+                        exito_bd, msj_bd = self.bd.actualizar_permisos_usuario(
+                            usuario_actual["id"], nuevo_rol_id, nuevo_estado
+                        )
+
+                        GestorMensajes.cerrar_cargando(self.page, loader)
+
+                        if exito_bd:
+                            self.contenedor_principal.content = self.seccion_usuarios()
+                            self.contenedor_principal.update()
+                            self.mostrar_alerta("Éxito", "Cambios aplicados y empleado notificado.", "exito")
+                        else:
+                            self.mostrar_alerta("Error Interno", msj_bd, "error")
+
+                    except (SMTPException, OSError) as err:
+                        GestorMensajes.cerrar_cargando(self.page, loader)
+                        print(f">>> ERROR DE RED/SMTP: {err}")
+                        self.mostrar_alerta(
+                            "Error de Conexión", 
+                            "No se pudieron modificar los accesos sin internet, ya que es obligatorio notificar al empleado por correo.", 
+                            "error"
+                        )
+                    except Exception as ex:
+                        GestorMensajes.cerrar_cargando(self.page, loader)
+                        self.mostrar_alerta("Error Inesperado", str(ex), "error")
+
+                threading.Thread(target=tarea_notificar_y_guardar).start()
 
             dialogo_gestion = ft.AlertDialog(
                 modal=True,
                 title=ft.Row([ft.Icon(ft.Icons.SECURITY, color=ft.Colors.BLUE_700), ft.Text("Seguridad de Cuenta")]),
                 content=ft.Column([txt_nombre, dd_rol, dd_estado], tight=True),
                 actions=[
-                    ft.TextButton("Cancelar", on_click=lambda _: setattr(dialogo_gestion, 'open', False) or self.page.update()),
-                    ft.Button("Guardar", bgcolor=ft.Colors.BLUE_600, color=ft.Colors.WHITE, on_click=guardar_permisos)
+                    # Conectamos el botón Cancelar con la misma función limpia
+                    ft.TextButton("Cancelar", on_click=cerrar_modal),
+                    ft.Button("Guardar", bgcolor=ft.Colors.BLUE_600, color=ft.Colors.WHITE, on_click=guardar_permisos) 
                 ],
                 actions_alignment=ft.MainAxisAlignment.END
             )
@@ -437,6 +383,7 @@ class Carniceria:
                 ft.DataRow(cells=[
                     ft.DataCell(ft.Text(str(u["id"]))),
                     ft.DataCell(ft.Text(u["nombre"], weight=ft.FontWeight.BOLD)),
+                    ft.DataCell(ft.Text(u["email"], color=ft.Colors.GREY_700)),
                     ft.DataCell(ft.Text(u["rol_nombre"] if u["rol_nombre"] else "Pendiente")),
                     ft.DataCell(ft.Text("Activo" if u["activo"] == 1 else "Inactivo", 
                                        color=ft.Colors.GREEN_700 if u["activo"] == 1 else ft.Colors.RED_700)),
@@ -450,6 +397,7 @@ class Carniceria:
                 columns=[
                     ft.DataColumn(ft.Text("ID")), 
                     ft.DataColumn(ft.Text("Nombre")), 
+                    ft.DataColumn(ft.Text("Email")),
                     ft.DataColumn(ft.Text("Rol")), 
                     ft.DataColumn(ft.Text("Estado")), 
                     ft.DataColumn(ft.Text("Acción"))
@@ -457,7 +405,7 @@ class Carniceria:
                 rows=filas
             )
         ], expand=True)
-    
+
     # ==========================================
     # VISTAS DE ADMINISTRADOR
     # ==========================================

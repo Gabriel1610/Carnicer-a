@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?><sqlb_project><db path="fuego_y_fierro.db" readonly="0" foreign_keys="1" case_sensitive_like="0" temp_store="0" wal_autocheckpoint="1000" synchronous="2"/><attached/><window><main_tabs open="structure browser pragmas query" current="3"/></window><tab_structure><column_width id="0" width="300"/><column_width id="1" width="0"/><column_width id="2" width="100"/><column_width id="3" width="5539"/><column_width id="4" width="0"/><expanded_item id="0" parent="1"/><expanded_item id="1" parent="1"/><expanded_item id="2" parent="1"/><expanded_item id="3" parent="1"/></tab_structure><tab_browse><table title="detalleVentas" custom_title="0" dock_id="4" table="4,13:maindetalleVentas"/><dock_state state="000000ff00000000fd00000001000000020000000000000000fc0100000002fb000000160064006f0063006b00420072006f00770073006500310100000000ffffffff0000000000000000fb000000160064006f0063006b00420072006f00770073006500340100000000ffffffff0000011700ffffff000000000000000000000004000000040000000800000008fc00000000"/><default_encoding codec=""/><browse_table_settings/></tab_browse><tab_sql><sql name="SQL 1*">-- 1. Tabla rol
+<?xml version="1.0" encoding="UTF-8"?><sqlb_project><db path="fuego_y_fierro.db" readonly="0" foreign_keys="1" case_sensitive_like="0" temp_store="0" wal_autocheckpoint="1000" synchronous="2"/><attached/><window><main_tabs open="structure browser pragmas query" current="3"/></window><tab_structure><column_width id="0" width="300"/><column_width id="1" width="0"/><column_width id="2" width="100"/><column_width id="3" width="5539"/><column_width id="4" width="0"/><expanded_item id="0" parent="1"/><expanded_item id="1" parent="1"/><expanded_item id="2" parent="1"/><expanded_item id="3" parent="1"/></tab_structure><tab_browse><table title="detalleVentas" custom_title="0" dock_id="4" table="4,13:maindetalleVentas"/><dock_state state="000000ff00000000fd000000010000000200000400000002b5fc0100000002fb000000160064006f0063006b00420072006f00770073006500310100000000ffffffff0000000000000000fb000000160064006f0063006b00420072006f00770073006500340100000000000004000000016500ffffff000002570000000000000004000000040000000800000008fc00000000"/><default_encoding codec=""/><browse_table_settings><table schema="main" name="detalleVentas" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_" freeze_columns="0"><sort/><column_widths><column index="1" value="60"/><column index="2" value="56"/><column index="3" value="74"/><column index="4" value="56"/><column index="5" value="54"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table></browse_table_settings></tab_browse><tab_sql><sql name="SQL 1*">-- 1. Tabla rol
 CREATE TABLE rol (
     rolID INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre_rol TEXT NOT NULL,
@@ -68,24 +68,11 @@ CREATE TABLE detalleVentas (
     FOREIGN KEY (productoID) REFERENCES producto(productoID) ON DELETE RESTRICT,
     CONSTRAINT chk_cantidad_positiva CHECK (cantidad &gt; 0),
     CONSTRAINT chk_subtotal_positivo CHECK (subtotal &gt; 0)
-);
+);
+
+UPDATE usuario 
+SET activo = 1 
+WHERE email = 'gabrielydeindependiente@gmail.com';
 
-INSERT INTO producto (nombre, precio_unitario, stock_actual, stock_critico) VALUES
-('Asado de Novillo', 7500.0, 50.0, 15.0),
-('Vacío', 8900.0, 30.0, 10.0),
-('Matambre de Vaca', 8500.0, 20.0, 5.0),
-('Entraña', 11000.0, 15.0, 5.0),
-('Carne Picada Especial', 6500.0, 40.0, 10.0),
-('Nalga para Milanesa', 8200.0, 35.0, 10.0),
-('Osobuco', 4500.0, 25.0, 10.0),
-('Bondiola de Cerdo', 7200.0, 20.0, 5.0),
-('Pechito de Cerdo', 5800.0, 25.0, 8.0),
-('Matambre de Cerdo', 7900.0, 15.0, 5.0),
-('Costillita de Cerdo', 6200.0, 18.0, 5.0),
-('Suprema de Pollo', 6000.0, 40.0, 15.0),
-('Pata Muslo', 3500.0, 50.0, 20.0),
-('Chorizo Puro Cerdo', 6500.0, 25.0, 5.0),
-('Morcilla', 4500.0, 15.0, 5.0);
-
-SELECT * FROM producto;
+SELECT * FROM usuario;
 </sql><current_tab id="0"/></tab_sql></sqlb_project>
