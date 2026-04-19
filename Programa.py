@@ -496,8 +496,13 @@ class Carniceria:
         for p in pickers_viejos:
             self.page.overlay.remove(p)
 
-        dp_inicio = ft.DatePicker()
-        dp_fin = ft.DatePicker()
+        # Capturamos la fecha actual exacta
+        hoy = datetime.datetime.now()
+
+        # Creamos los calendarios aplicando el límite máximo (last_date)
+        dp_inicio = ft.DatePicker(last_date=hoy)
+        dp_fin = ft.DatePicker(last_date=hoy)
+        
         self.page.overlay.extend([dp_inicio, dp_fin])
 
         lbl_inicio = ft.Text(f"Desde: {estado_fechas['inicio'].strftime('%d/%m/%Y')}")
