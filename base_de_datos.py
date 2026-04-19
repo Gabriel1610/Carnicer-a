@@ -333,3 +333,98 @@ class BaseDeDatos:
         finally:
             if cursor: cursor.close()
             if conexion: conexion.close()
+    
+    # ==========================================
+    # MÓDULO DE REPORTES Y ESTADÍSTICAS
+    # ==========================================
+
+    def _obtener_filtro_fecha(self, filtro, fecha_inicio=None, fecha_fin=None):
+        """Genera la condición SQL según el filtro de tiempo seleccionado."""
+        if filtro == "Hoy":
+            return "DATE(v.fecha_hora, 'localtime') = DATE('now', 'localtime')"
+        elif filtro == "Esta Semana":
+            return "DATE(v.fecha_hora, 'localtime') >= DATE('now', '-7 days', 'localtime')"
+        elif filtro == "Mes en Curso":
+            return "strftime('%Y-%m', v.fecha_hora, 'localtime') = strftime('%Y-%m', 'now', 'localtime')"
+        elif filtro == "Personalizado" and fecha_inicio and fecha_fin:
+            # Filtro exacto entre dos fechas (YYYY-MM-DD)
+            return f"DATE(v.fecha_hora, 'localtime') BETWEEN '{fecha_inicio}' AND '{fecha_fin}'"
+        else:
+            return "1=1" # Histórico (Sin límite)
+
+    def obtener_kpis_reporte(self, filtro="Mes en Curso", fecha_inicio=None, fecha_fin=None):
+        """Calcula Ingresos, Tickets y Promedio según la fecha."""
+        condicion = self._obtener_filtro_fecha(filtro, fecha_inicio, fecha_fin)
+        try:
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+            sql = f"""
+                SELECT 
+                    COUNT(DISTINCT v.ventaID) as total_tickets,
+                    SUM(d.subtotal) as total_ingresos
+                FROM venta v
+                LEFT JOIN detalleVentas d ON v.ventaID = d.ventaID
+                WHERE {condicion}
+            """
+            cursor.execute(sql)
+            resultado = cursor.fetchone()
+            
+            tickets = resultado['total_tickets'] or 0
+            ingresos = resultado['total_ingresos'] or 0.0
+            promedio = ingresos / tickets if tickets > 0 else 0.0
+            
+            cursor.close()
+            conexion.close()
+            return {"ingresos": ingresos, "tickets": tickets, "promedio": promedio}
+        except Exception as e:
+            print(f"Error en KPIs: {e}")
+            return {"ingresos": 0.0, "tickets": 0, "promedio": 0.0}
+
+    def obtener_ranking_productos(self, filtro="Mes en Curso", fecha_inicio=None, fecha_fin=None):
+        """Devuelve los 5 productos más vendidos en el periodo."""
+        condicion = self._obtener_filtro_fecha(filtro, fecha_inicio, fecha_fin)
+        try:
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+            sql = f"""
+                SELECT p.nombre, SUM(d.cantidad) as total_cantidad
+                FROM detalleVentas d
+                JOIN venta v ON d.ventaID = v.ventaID
+                JOIN producto p ON d.productoID = p.productoID
+                WHERE {condicion}
+                GROUP BY p.productoID
+                ORDER BY total_cantidad DESC
+                LIMIT 5
+            """
+            cursor.execute(sql)
+            ranking = [{"nombre": f[0], "cantidad": f[1]} for f in cursor.fetchall()]
+            cursor.close()
+            conexion.close()
+            return ranking
+        except Exception as e:
+            print(f"Error en Ranking: {e}")
+            return []
+
+    def obtener_auditoria_cajeros(self, filtro="Mes en Curso", fecha_inicio=None, fecha_fin=None):
+        """Devuelve el rendimiento agrupado por empleado."""
+        condicion = self._obtener_filtro_fecha(filtro, fecha_inicio, fecha_fin)
+        try:
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+            sql = f"""
+                SELECT u.nombre, u.apellido, COUNT(DISTINCT v.ventaID) as tickets, SUM(d.subtotal) as recaudado
+                FROM venta v
+                JOIN usuario u ON v.userID = u.userID
+                JOIN detalleVentas d ON v.ventaID = d.ventaID
+                WHERE {condicion}
+                GROUP BY u.userID
+                ORDER BY recaudado DESC
+            """
+            cursor.execute(sql)
+            auditoria = [{"empleado": f"{f[0]} {f[1]}", "tickets": f[2], "recaudado": f[3] or 0.0} for f in cursor.fetchall()]
+            cursor.close()
+            conexion.close()
+            return auditoria
+        except Exception as e:
+            print(f"Error en Auditoría: {e}")
+            return []

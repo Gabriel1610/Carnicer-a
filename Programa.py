@@ -466,6 +466,209 @@ class Carniceria:
             tabla_usuarios
         ], expand=True)
     
+    def seccion_reportes(self):
+        import datetime
+
+        # ---------------------------------------------------------
+        # EL TRUCO PRO: Reemplazamos el Dropdown por un RadioGroup
+        # ---------------------------------------------------------
+        dd_filtro = ft.RadioGroup(
+            content=ft.Row([
+                ft.Radio(value="Hoy", label="Hoy", active_color=ft.Colors.ORANGE_700),
+                ft.Radio(value="Esta Semana", label="Semana", active_color=ft.Colors.ORANGE_700),
+                ft.Radio(value="Mes en Curso", label="Mes", active_color=ft.Colors.ORANGE_700),
+                ft.Radio(value="Histórico", label="Histórico", active_color=ft.Colors.ORANGE_700),
+                ft.Radio(value="Personalizado", label="Personalizado", active_color=ft.Colors.ORANGE_700)
+            ], alignment=ft.MainAxisAlignment.END),
+            value="Mes en Curso"
+        )
+
+        # ==========================================
+        # LÓGICA DE CALENDARIOS (DATE PICKERS)
+        # ==========================================
+        estado_fechas = {
+            "inicio": datetime.datetime.now(), 
+            "fin": datetime.datetime.now()
+        }
+
+        # Limpiamos Pickers anteriores del overlay eliminándolos uno por uno
+        pickers_viejos = [ctrl for ctrl in self.page.overlay if isinstance(ctrl, ft.DatePicker)]
+        for p in pickers_viejos:
+            self.page.overlay.remove(p)
+
+        dp_inicio = ft.DatePicker()
+        dp_fin = ft.DatePicker()
+        self.page.overlay.extend([dp_inicio, dp_fin])
+
+        lbl_inicio = ft.Text(f"Desde: {estado_fechas['inicio'].strftime('%d/%m/%Y')}")
+        lbl_fin = ft.Text(f"Hasta: {estado_fechas['fin'].strftime('%d/%m/%Y')}")
+
+        def actualizar_fecha(tipo, e):
+            if e.control.value:
+                estado_fechas[tipo] = e.control.value
+                if tipo == "inicio":
+                    lbl_inicio.value = f"Desde: {estado_fechas['inicio'].strftime('%d/%m/%Y')}"
+                else:
+                    lbl_fin.value = f"Hasta: {estado_fechas['fin'].strftime('%d/%m/%Y')}"
+                
+                # Forzamos la actualización de los gráficos al elegir una fecha
+                actualizar_pantalla(e="Forzar_Actualizacion")
+
+        dp_inicio.on_change = lambda e: actualizar_fecha("inicio", e)
+        dp_fin.on_change = lambda e: actualizar_fecha("fin", e)
+
+        def abrir_dp_inicio(e):
+            dp_inicio.open = True
+            self.page.update()
+
+        def abrir_dp_fin(e):
+            dp_fin.open = True
+            self.page.update()
+
+        btn_inicio = ft.TextButton(
+            content=ft.Row([ft.Icon(ft.Icons.CALENDAR_TODAY), lbl_inicio], tight=True),
+            on_click=abrir_dp_inicio
+        )
+        btn_fin = ft.TextButton(
+            content=ft.Row([ft.Icon(ft.Icons.CALENDAR_TODAY), lbl_fin], tight=True),
+            on_click=abrir_dp_fin
+        )
+
+        # La fila de los calendarios nace oculta
+        fila_fechas = ft.Row([btn_inicio, btn_fin], visible=False)
+        col_filtros = ft.Column([dd_filtro, fila_fechas], horizontal_alignment=ft.CrossAxisAlignment.END)
+
+        # 2. Tarjetas de Resumen (KPIs)
+        lbl_ingresos = ft.Text("$ 0.00", size=30, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_700)
+        lbl_tickets = ft.Text("0", size=30, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_700)
+        lbl_promedio = ft.Text("$ 0.00", size=30, weight=ft.FontWeight.BOLD, color=ft.Colors.ORANGE_700)
+
+        def crear_tarjeta(titulo, icono, color_icono, label_valor):
+            return ft.Card(
+                elevation=2,
+                content=ft.Container(
+                    padding=20, width=280,
+                    content=ft.Column([
+                        ft.Row([ft.Icon(icono, color=color_icono), ft.Text(titulo, size=16, color=ft.Colors.GREY_700)]),
+                        label_valor
+                    ])
+                )
+            )
+
+        row_kpis = ft.Row([
+            crear_tarjeta("Ingresos Totales", ft.Icons.ATTACH_MONEY, ft.Colors.GREEN_600, lbl_ingresos),
+            crear_tarjeta("Tickets Emitidos", ft.Icons.RECEIPT_LONG, ft.Colors.BLUE_600, lbl_tickets),
+            crear_tarjeta("Ticket Promedio", ft.Icons.ANALYTICS, ft.Colors.ORANGE_600, lbl_promedio),
+        ], spacing=20)
+
+        # 3. Contenedores de Listas
+        col_ranking = ft.Column(scroll=ft.ScrollMode.AUTO, spacing=15)
+        
+        tabla_cajeros = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Empleado", weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Tickets", weight=ft.FontWeight.BOLD), numeric=True),
+                ft.DataColumn(ft.Text("Recaudación", weight=ft.FontWeight.BOLD), numeric=True),
+            ],
+            rows=[]
+        )
+
+        # 4. El Motor de Actualización
+        def actualizar_pantalla(e=None):
+            filtro = dd_filtro.value
+            
+            # --- Encender/Apagar los calendarios ---
+            fila_fechas.visible = (filtro == "Personalizado")
+            
+            str_inicio = estado_fechas["inicio"].strftime('%Y-%m-%d')
+            str_fin = estado_fechas["fin"].strftime('%Y-%m-%d')
+            
+            # --- Actualizar KPIs ---
+            kpis = self.bd.obtener_kpis_reporte(filtro, str_inicio, str_fin)
+            lbl_ingresos.value = f"$ {kpis['ingresos']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            lbl_tickets.value = str(kpis['tickets'])
+            lbl_promedio.value = f"$ {kpis['promedio']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+            # --- Actualizar Ranking ---
+            ranking = self.bd.obtener_ranking_productos(filtro, str_inicio, str_fin)
+            col_ranking.controls.clear()
+            if not ranking:
+                col_ranking.controls.append(ft.Text("No hay ventas en este periodo.", color=ft.Colors.GREY_500))
+            else:
+                max_cantidad = max([p["cantidad"] for p in ranking]) if ranking else 1
+                for item in ranking:
+                    porcentaje = item["cantidad"] / max_cantidad
+                    col_ranking.controls.append(
+                        ft.Column([
+                            ft.Row([
+                                ft.Text(item["nombre"], width=150, weight=ft.FontWeight.W_500),
+                                ft.Text(f"{item['cantidad']} kg/un", color=ft.Colors.GREY_700)
+                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                            ft.ProgressBar(value=porcentaje, color=ft.Colors.ORANGE_600, bgcolor=ft.Colors.ORANGE_50, height=8)
+                        ], spacing=2)
+                    )
+
+            # --- Actualizar Auditoría ---
+            auditoria = self.bd.obtener_auditoria_cajeros(filtro, str_inicio, str_fin)
+            tabla_cajeros.rows.clear()
+            for c in auditoria:
+                recaudado_formateado = f"$ {c['recaudado']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                tabla_cajeros.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(c['empleado'])),
+                        ft.DataCell(ft.Text(str(c['tickets']))),
+                        ft.DataCell(ft.Text(recaudado_formateado, color=ft.Colors.GREEN_700, weight=ft.FontWeight.BOLD))
+                    ])
+                )
+            
+            if e: 
+                # Actualizamos la columna específica y la página completa
+                if col_filtros.page:
+                    col_filtros.update()
+                self.page.update()
+
+        # ¡Le inyectamos el evento directo al control que sí funciona!
+        dd_filtro.on_change = actualizar_pantalla
+        actualizar_pantalla()
+
+        # 5. Estructura y Maquetación Final
+        return ft.Column([
+            ft.Row([
+                ft.Text("Reportes y Estadísticas", size=32, weight=ft.FontWeight.BOLD), 
+                col_filtros  
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+            row_kpis,
+            ft.Divider(height=40, color=ft.Colors.TRANSPARENT),
+            
+            ft.Row([
+                # Panel Izquierdo: Ranking
+                ft.Container(
+                    expand=1,
+                    padding=20, 
+                    border=ft.Border.all(1, ft.Colors.GREY_300),
+                    border_radius=10,
+                    content=ft.Column([
+                        ft.Row([ft.Icon(ft.Icons.LEADERBOARD, color=ft.Colors.ORANGE_700), ft.Text("Ranking de Productos (Top Salida)", size=18, weight=ft.FontWeight.W_600)]),
+                        ft.Divider(),
+                        col_ranking
+                    ])
+                ),
+                # Panel Derecho: Auditoría
+                ft.Container(
+                    expand=1,
+                    padding=20, 
+                    border=ft.Border.all(1, ft.Colors.GREY_300),
+                    border_radius=10,
+                    content=ft.Column([
+                        ft.Row([ft.Icon(ft.Icons.POINT_OF_SALE, color=ft.Colors.GREEN_700), ft.Text("Auditoría por Cajero", size=18, weight=ft.FontWeight.W_600)]),
+                        ft.Divider(),
+                        ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, controls=[tabla_cajeros])
+                    ])
+                )
+            ], expand=True, spacing=20)
+        ], expand=True)
+
     # ==========================================
     # VISTAS DE ADMINISTRADOR
     # ==========================================
@@ -829,7 +1032,7 @@ class Carniceria:
                     scroll=ft.ScrollMode.AUTO, 
                     controls=[tabla_inventario]
                 ),
-                border=ft.border.all(1, ft.Colors.GREY_300),
+                border=ft.Border.all(1, ft.Colors.GREY_300), # <--- Cambiamos "border" por "Border" (con B mayúscula)
                 border_radius=10,
                 padding=10
             )
@@ -850,7 +1053,7 @@ class Carniceria:
                 # ACÁ CONECTAMOS LA NUEVA SECCIÓN DE USUARIOS
                 self.contenedor_principal.content = self.seccion_usuarios()
             elif idx == 3:
-                self.contenedor_principal.content = ft.Text("Sección de Reportes en construcción...")
+                self.contenedor_principal.content = self.seccion_reportes()
             
             self.contenedor_principal.update()
 
