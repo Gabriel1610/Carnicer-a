@@ -1,14 +1,17 @@
 import flet as ft
 import random
 import smtplib
-from smtplib import SMTPRecipientsRefused, SMTPException
+from smtplib import SMTPException
 import os
-import time
+import datetime
 import re
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import asyncio
 from dotenv import load_dotenv
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import threading 
 from base_de_datos import BaseDeDatos
 from ventana_mensaje import GestorMensajes
 
@@ -123,7 +126,7 @@ class Carniceria:
         txt_pass = ft.TextField(label="Contraseña", password=True, can_reveal_password=True, width=300)
         txt_pass_conf = ft.TextField(label="Confirmar Contraseña", password=True, can_reveal_password=True, width=300)
 
-        def enviar_codigo(e):
+        async def enviar_codigo(e):
             nombre_limpio = (txt_nombre.value or "").strip()
             apellido_limpio = (txt_apellido.value or "").strip()
             email_limpio = (txt_email.value or "").strip()
@@ -167,31 +170,37 @@ class Carniceria:
             msg['From'] = REMITENTE
             msg['To'] = email_limpio
             msg['Subject'] = "Código de Verificación - Fuego & Fierro"
-            cuerpo_mensaje = f"Hola {nombre_limpio}, tu código es: {self.codigo_generado}"
+            cuerpo_mensaje = f"Hola {nombre_limpio},\n\nGracias por registrarte en Fuego & Fierro. Tu código de verificación es: {self.codigo_generado}"
             msg.attach(MIMEText(cuerpo_mensaje, 'plain', 'utf-8'))
 
+            # 1. Empaquetamos el trabajo pesado (Bloqueante) sin tocar la UI
             def tarea_envio_correo():
                 try:
-                    server = smtplib.SMTP('smtp.gmail.com', 587)
+                    server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
                     server.starttls()
                     server.login(REMITENTE, PASSWORD)
                     server.send_message(msg)
                     server.quit()
-                    
-                    GestorMensajes.cerrar_cargando(self.page, loader)
-                    self.mostrar_alerta("Código Enviado", f"Revisá tu bandeja en {email_limpio}", "exito")
-                    self.navegar("/validacion")
-                    
+                    return True
                 except Exception as err:
-                    GestorMensajes.cerrar_cargando(self.page, loader)
                     print(f">>> ERROR DE ENVÍO: {err}")
-                    self.mostrar_alerta(
-                        "Error de Envío", 
-                        "No se pudo conectar con el servidor de correo. Verificá tu conexión.", 
-                        "error"
-                    )
+                    return False
 
-            threading.Thread(target=tarea_envio_correo).start()
+            # 2. Enviamos la tarea a procesar sin congelar la pantalla visual
+            exito_envio = await asyncio.to_thread(tarea_envio_correo)
+
+            # 3. Volvemos al Primer Plano: Ahora sí podemos actualizar la UI sin fallas
+            GestorMensajes.cerrar_cargando(self.page, loader)
+
+            if exito_envio:
+                self.mostrar_alerta("Código Enviado", f"Revisá tu bandeja en {email_limpio}", "exito")
+                self.navegar("/validacion")
+            else:
+                self.mostrar_alerta(
+                    "Error de Envío", 
+                    "No se pudo conectar con el servidor de correo. Verificá tu conexión.", 
+                    "error"
+                )
 
         return ft.View(
             route="/registro",
@@ -263,7 +272,6 @@ class Carniceria:
         )
     
     def seccion_usuarios(self):
-        import asyncio # Importamos la librería nativa para tareas en segundo plano
         
         tabla_usuarios = ft.DataTable(
             columns=[
@@ -401,9 +409,6 @@ class Carniceria:
                 def trabajo_pesado_en_segundo_plano():
                     try:
                         # (Mantenemos la lógica de smtplib y BD igual...)
-                        import smtplib
-                        from email.mime.text import MIMEText
-                        from email.mime.multipart import MIMEMultipart
                         
                         msg = MIMEMultipart()
                         msg['From'] = REMITENTE
@@ -482,7 +487,6 @@ class Carniceria:
         ], expand=True)
     
     def seccion_reportes(self):
-        import datetime
 
         # ---------------------------------------------------------
         # EL TRUCO PRO: Reemplazamos el Dropdown por un RadioGroup
@@ -710,16 +714,55 @@ class Carniceria:
         cantidad_alertas = sum(1 for p in productos_reales if p["stock"] <= p["critico"])
 
         # 2. Tarjetas de KPI
+        # Creamos la etiqueta separada y le ponemos un texto temporal amigable
+        lbl_ventas_dia = ft.Text("Calculando...", size=24, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_700)
+        
         tarjeta_ventas = ft.Card(
             content=ft.Container(
                 padding=20, width=250,
                 content=ft.Column([
                     ft.Text("Ventas del día", size=16, color=ft.Colors.GREY_700),
-                    ft.Text("$ 145.500,00", size=28, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_700),
+                    lbl_ventas_dia,
                     ft.Text("Actualizado recién", size=12, color=ft.Colors.GREY_500)
                 ])
             )
         )
+
+        async def cargar_ventas_dia():
+            # 1. Esperamos (de forma asíncrona) a que la pantalla se termine de dibujar
+            montado = False
+            for _ in range(50): 
+                try:
+                    _ = lbl_ventas_dia.page
+                    montado = True
+                    break
+                except Exception:
+                    await asyncio.sleep(0.1) # Clave: Usamos asyncio.sleep en vez de time.sleep
+                
+            if not montado:
+                return
+                
+            # 2. Buscamos los datos sin congelar la ventana
+            try:
+                def consulta():
+                    return self.bd.obtener_kpis_reporte(filtro="Hoy")
+                    
+                kpis = await asyncio.to_thread(consulta)
+                ingresos_hoy = kpis["ingresos"]
+                
+                # Formato español
+                lbl_ventas_dia.value = f"$ {ingresos_hoy:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            except Exception:
+                lbl_ventas_dia.value = "$ 0,00"
+            
+            # 3. Ordenamos repintar (Al estar en run_task, Flet obedece inmediatamente)
+            try:
+                lbl_ventas_dia.update()
+            except Exception:
+                pass
+
+        # USAMOS EL MOTOR NATIVO DE FLET PARA TAREAS EN SEGUNDO PLANO
+        self.page.run_task(cargar_ventas_dia)
 
         color_alerta = ft.Colors.RED_700 if cantidad_alertas > 0 else ft.Colors.GREEN_700
         texto_alerta = "Requieren reposición" if cantidad_alertas > 0 else "Stock saludable"
@@ -736,7 +779,6 @@ class Carniceria:
         )
 
         # 3. Consultar TODAS las ventas reales
-        import datetime # Importamos la herramienta para manipular fechas
         
         ventas_bd = self.bd.obtener_todas_las_ventas()
         
@@ -1191,7 +1233,6 @@ class Carniceria:
         # ==========================================
         # LÓGICA DEL BOTÓN GUARDAR (ASÍNCRONA)
         # ==========================================
-        import asyncio
 
         async def guardar_datos_personales(e):
             nvo_nombre = (txt_nombre.value or "").strip()
@@ -1563,7 +1604,7 @@ class Carniceria:
             self.ticket_actual.clear()
             dibujar_ticket()
 
-        def confirmar_venta(e):
+        async def confirmar_venta(e):
             if not self.ticket_actual:
                 self.mostrar_alerta("Ticket Vacío", "No hay productos en el carrito para cobrar.", "error")
                 return
@@ -1573,7 +1614,53 @@ class Carniceria:
                     self.mostrar_alerta("Cantidad Inválida", f"El producto '{item['nombre']}' tiene cantidad 0 (cero). Modificalo o eliminalo del ticket para poder cobrar.", "error")
                     return
             
-            exito, msj = self.bd.registrar_venta(self.usuario_actual["userID"], self.ticket_actual)
+            # ===================================================
+            # NUEVA LÓGICA: AUDITORÍA DE TIEMPO Y CONEXIÓN
+            # ===================================================
+            loader = GestorMensajes.mostrar_cargando(self.page, "Verificando hora oficial y conexión...")
+
+            def obtener_hora_web():
+                import urllib.request
+                import datetime
+                import email.utils
+                
+                try:
+                    # TRUCO PROFESIONAL: Consultamos la hora atómica directamente a las cabeceras de Google.
+                    # Usamos method="HEAD" para que sea ultra rápido (no descarga la página, solo los datos técnicos).
+                    req = urllib.request.Request("https://google.com", method="HEAD")
+                    
+                    with urllib.request.urlopen(req, timeout=4) as response:
+                        # Extraemos la hora exacta en la que Google recibió nuestra petición
+                        fecha_http = response.headers['Date']
+                        
+                        # Esa hora viene en huso horario GMT (Mundial). La convertimos a objeto Python:
+                        tupla_fecha = email.utils.parsedate_tz(fecha_http)
+                        if tupla_fecha:
+                            fecha_utc = datetime.datetime(*tupla_fecha[:6])
+                            
+                            # Argentina está en UTC-3, así que le restamos 3 horas exactas
+                            fecha_arg = fecha_utc - datetime.timedelta(hours=3)
+                            
+                            # Retornamos el formato exacto que SQLite necesita (YYYY-MM-DD HH:MM:SS)
+                            return fecha_arg.strftime('%Y-%m-%d %H:%M:%S')
+                except Exception as e:
+                    print(f">>> Error de conexión: {e}")
+                    return None
+
+            # Mandamos la verificación al fondo para no congelar la pantalla de Flet
+            hora_oficial = await asyncio.to_thread(obtener_hora_web)
+            GestorMensajes.cerrar_cargando(self.page, loader)
+
+            if not hora_oficial:
+                self.mostrar_alerta(
+                    "Fallo de Seguridad", 
+                    "No se pudo validar la hora oficial. Por políticas de auditoría, no se pueden registrar ventas sin conexión a internet activa.", 
+                    "error"
+                )
+                return
+            
+            # Si hay internet y la hora es correcta, procedemos a registrar pasando la hora oficial
+            exito, msj = self.bd.registrar_venta(self.usuario_actual["userID"], self.ticket_actual, hora_oficial)
             
             if exito:
                 self.ticket_actual.clear() 

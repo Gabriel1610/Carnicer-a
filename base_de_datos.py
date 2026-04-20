@@ -343,14 +343,15 @@ class BaseDeDatos:
     def _obtener_filtro_fecha(self, filtro, fecha_inicio=None, fecha_fin=None):
         """Genera la condición SQL según el filtro de tiempo seleccionado."""
         if filtro == "Hoy":
-            return "DATE(v.fecha_hora, 'localtime') = DATE('now', 'localtime')"
+            # Le quitamos el 'localtime' a v.fecha_hora porque el dato ya está en hora argentina
+            return "DATE(v.fecha_hora) = DATE('now', 'localtime')"
         elif filtro == "Esta Semana":
-            return "DATE(v.fecha_hora, 'localtime') >= DATE('now', '-7 days', 'localtime')"
+            return "DATE(v.fecha_hora) >= DATE('now', '-7 days', 'localtime')"
         elif filtro == "Mes en Curso":
-            return "strftime('%Y-%m', v.fecha_hora, 'localtime') = strftime('%Y-%m', 'now', 'localtime')"
+            return "strftime('%Y-%m', v.fecha_hora) = strftime('%Y-%m', 'now', 'localtime')"
         elif filtro == "Personalizado" and fecha_inicio and fecha_fin:
             # Filtro exacto entre dos fechas (YYYY-MM-DD)
-            return f"DATE(v.fecha_hora, 'localtime') BETWEEN '{fecha_inicio}' AND '{fecha_fin}'"
+            return f"DATE(v.fecha_hora) BETWEEN '{fecha_inicio}' AND '{fecha_fin}'"
         else:
             return "1=1" # Histórico (Sin límite)
 
@@ -475,19 +476,19 @@ class BaseDeDatos:
             if 'cursor' in locals() and cursor: cursor.close()
             if 'conexion' in locals() and conexion: conexion.close()
     
-    def registrar_venta(self, user_id, ticket):
-        """Registra la venta y descuenta el stock de forma transaccional."""
+    def registrar_venta(self, user_id, ticket, fecha_hora):
+        """Registra la venta con hora de internet y descuenta el stock de forma transaccional."""
         conexion = None
         cursor = None
         try:
             conexion = self.abrir()
             cursor = conexion.cursor()
             
-            # Iniciamos la transacción (si algo falla, no se guarda nada)
+            # Iniciamos la transacción
             cursor.execute("BEGIN TRANSACTION;")
             
-            # 1. Crear cabecera de la venta
-            cursor.execute("INSERT INTO venta (userID) VALUES (?)", (user_id,))
+            # 1. Crear cabecera inyectando la hora oficial validada
+            cursor.execute("INSERT INTO venta (userID, fecha_hora) VALUES (?, ?)", (user_id, fecha_hora))
             venta_id = cursor.lastrowid
             
             # 2. Procesar cada línea del ticket
@@ -502,7 +503,7 @@ class BaseDeDatos:
                 stock_bd = resultado['stock_actual'] if resultado else 0
                 
                 if stock_bd < cant:
-                    # Aplicamos el formato español inteligente (hasta 3 decimales, limpiando ceros y con separador de miles)
+                    # Formato español inteligente para el error
                     stock_fmt = f"{stock_bd:,.3f}".replace(",", "X").replace(".", ",").replace("X", ".")
                     if "," in stock_fmt:
                         stock_fmt = stock_fmt.rstrip("0").rstrip(",")
@@ -522,18 +523,18 @@ class BaseDeDatos:
                     WHERE productoID = ?
                 """, (cant, prod_id))
                 
-            # Si todo salió perfecto, aplicamos los cambios
+            # Aplicamos los cambios
             conexion.commit()
             return True, f"Ticket #{venta_id} cobrado y registrado con éxito."
             
         except Exception as e:
             if conexion:
-                conexion.rollback() # Deshacemos todo si hubo un error (Ej: falta de stock)
+                conexion.rollback() # Deshacemos todo si hubo un error
             return False, str(e)
         finally:
             if 'cursor' in locals() and cursor: cursor.close()
             if 'conexion' in locals() and conexion: conexion.close()
-    
+
     def obtener_todas_las_ventas(self):
         """Recupera el historial completo de ventas con su total y cajero."""
         try:
