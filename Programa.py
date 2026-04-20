@@ -618,11 +618,20 @@ class Carniceria:
                 max_cantidad = max([p["cantidad"] for p in ranking]) if ranking else 1
                 for item in ranking:
                     porcentaje = item["cantidad"] / max_cantidad
+                    
+                    # --- Formateo Español (3 decimales opcionales) ---
+                    # 1. Forzamos 3 decimales fijos (ej: 1,500.500) y traducimos los separadores (ej: 1.500,500)
+                    cantidad_fmt = f"{item['cantidad']:,.3f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    
+                    # 2. Si tiene una coma, le limpiamos los ceros inútiles de la derecha
+                    if "," in cantidad_fmt:
+                        cantidad_fmt = cantidad_fmt.rstrip("0").rstrip(",") # Si queda "1.500," le saca la coma también
+
                     col_ranking.controls.append(
                         ft.Column([
                             ft.Row([
                                 ft.Text(item["nombre"], width=150, weight=ft.FontWeight.W_500),
-                                ft.Text(f"{item['cantidad']} kg/un", color=ft.Colors.GREY_700)
+                                ft.Text(f"{cantidad_fmt} kg/un", color=ft.Colors.GREY_700) # Usamos la variable formateada
                             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                             ft.ProgressBar(value=porcentaje, color=ft.Colors.ORANGE_600, bgcolor=ft.Colors.ORANGE_50, height=8)
                         ], spacing=2)
@@ -1465,7 +1474,12 @@ class Carniceria:
         def recalcular_total():
             total = sum(item["precio"] * item["cantidad"] for item in self.ticket_actual)
             lbl_total_cobrar.value = f"$ {total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            lbl_total_cobrar.update()
+            
+            # Atrapamos el error si la etiqueta aún no se pegó en la pantalla
+            try:
+                lbl_total_cobrar.update()
+            except Exception:
+                pass
 
         def dibujar_ticket():
             lista_ticket.controls.clear()
@@ -1477,7 +1491,8 @@ class Carniceria:
                 lbl_subtotal = ft.Text(sub_formateado, expand=2, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.RIGHT)
                 
                 def cambiar_cantidad(e, it=item, lbl=lbl_subtotal):
-                    texto_ingresado = e.control.value.strip()
+                    # Traducimos la coma visual del usuario al punto matemático de Python
+                    texto_ingresado = e.control.value.strip().replace(",", ".")
                     try:
                         valor = float(texto_ingresado) if texto_ingresado else 0.0
                     except ValueError:
@@ -1487,16 +1502,21 @@ class Carniceria:
                     nuevo_subtotal = it["precio"] * valor
                     
                     lbl.value = f"$ {nuevo_subtotal:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-                    lbl.update()
+                    try:
+                        lbl.update()
+                    except Exception:
+                        pass
                     recalcular_total()
 
                 txt_cantidad = ft.TextField(
-                    value=f"{item['cantidad']:g}",
+                    # Al dibujar el ticket, mostramos la cantidad formateada con coma
+                    value=f"{item['cantidad']:g}".replace(".", ","),
                     expand=2,
                     text_align=ft.TextAlign.CENTER,
                     on_change=cambiar_cantidad,
                     content_padding=5,
-                    input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]*\.?[0-9]*$", replacement_string="")
+                    # EL FILTRO ACTUALIZADO: Solo números y una única COMA opcional (prohíbe el punto)
+                    input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]*\,?[0-9]*$", replacement_string="")
                 )
 
                 def eliminar_item(e, it=item):

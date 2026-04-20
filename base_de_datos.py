@@ -502,7 +502,12 @@ class BaseDeDatos:
                 stock_bd = resultado['stock_actual'] if resultado else 0
                 
                 if stock_bd < cant:
-                    raise Exception(f"Stock insuficiente para {item['nombre']}. Solo quedan {stock_bd} kg/un.")
+                    # Aplicamos el formato español inteligente (hasta 3 decimales, limpiando ceros y con separador de miles)
+                    stock_fmt = f"{stock_bd:,.3f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    if "," in stock_fmt:
+                        stock_fmt = stock_fmt.rstrip("0").rstrip(",")
+                        
+                    raise Exception(f"Stock insuficiente para {item['nombre']}. Solo quedan {stock_fmt} kg/un.")
 
                 # Insertar el detalle de la venta
                 cursor.execute("""
