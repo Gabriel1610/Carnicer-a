@@ -316,7 +316,8 @@ class BaseDeDatos:
         try:
             conexion = self.abrir()
             cursor = conexion.cursor()
-            cursor.execute("SELECT userID, password_hash, rolID, activo FROM usuario WHERE email = ?", (email,))
+            # 1. CAMBIAR EL SELECT PARA TRAER MÁS DATOS:
+            cursor.execute("SELECT userID, email, nombre, apellido, password_hash, rolID, activo FROM usuario WHERE email = ?", (email,))
             usuario = cursor.fetchone()
             
             if usuario:
@@ -326,7 +327,8 @@ class BaseDeDatos:
                 if usuario['activo'] == 0:
                     return False, "Tu cuenta aún no ha sido aprobada por el Administrador o está inhabilitada."
                 
-                return True, usuario
+                # 2. CONVERTIR LA FILA EN DICCIONARIO PARA QUE SEA EDITABLE:
+                return True, dict(usuario)
             return False, "Usuario no encontrado."
         except Exception as e:
             return False, str(e)
@@ -427,4 +429,135 @@ class BaseDeDatos:
             return auditoria
         except Exception as e:
             print(f"Error en Auditoría: {e}")
+            return []
+    
+    def actualizar_perfil(self, user_id, nombre, apellido, email):
+        """Actualiza nombre, apellido y correo del usuario."""
+        try:
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+            cursor.execute("UPDATE usuario SET nombre = ?, apellido = ?, email = ? WHERE userID = ?", (nombre, apellido, email, user_id))
+            conexion.commit()
+            return True, "Datos personales actualizados con éxito."
+        except sqlite3.IntegrityError:
+            # Captura el error si la base de datos detecta que el email ya existe (campo UNIQUE)
+            return False, "Ese correo electrónico ya está registrado por otro usuario."
+        except Exception as e:
+            return False, f"Error al actualizar perfil: {e}"
+        finally:
+            if 'cursor' in locals() and cursor: cursor.close()
+            if 'conexion' in locals() and conexion: conexion.close()
+
+    def cambiar_contrasena(self, user_id, pass_actual, pass_nueva):
+        """Verifica la contraseña actual y aplica el hash a la nueva."""
+        try:
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+            
+            cursor.execute("SELECT password_hash FROM usuario WHERE userID = ?", (user_id,))
+            resultado = cursor.fetchone()
+            if not resultado:
+                return False, "Usuario no encontrado en la base de datos."
+                
+            hash_actual = resultado['password_hash']
+            if not bcrypt.checkpw(pass_actual.encode('utf-8'), hash_actual.encode('utf-8')):
+                return False, "La contraseña actual que ingresaste es incorrecta."
+                
+            salt = bcrypt.gensalt()
+            nuevo_hash = bcrypt.hashpw(pass_nueva.encode('utf-8'), salt).decode('utf-8')
+            
+            cursor.execute("UPDATE usuario SET password_hash = ? WHERE userID = ?", (nuevo_hash, user_id))
+            conexion.commit()
+            return True, "Contraseña actualizada de forma segura."
+        except Exception as e:
+            return False, f"Error al cambiar contraseña: {e}"
+        finally:
+            if 'cursor' in locals() and cursor: cursor.close()
+            if 'conexion' in locals() and conexion: conexion.close()
+    
+    def registrar_venta(self, user_id, ticket):
+        """Registra la venta y descuenta el stock de forma transaccional."""
+        conexion = None
+        cursor = None
+        try:
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+            
+            # Iniciamos la transacción (si algo falla, no se guarda nada)
+            cursor.execute("BEGIN TRANSACTION;")
+            
+            # 1. Crear cabecera de la venta
+            cursor.execute("INSERT INTO venta (userID) VALUES (?)", (user_id,))
+            venta_id = cursor.lastrowid
+            
+            # 2. Procesar cada línea del ticket
+            for item in ticket:
+                prod_id = item["id"]
+                cant = item["cantidad"]
+                subtotal = item["precio"] * cant
+                
+                # Verificar que haya stock suficiente
+                cursor.execute("SELECT stock_actual FROM producto WHERE productoID = ?", (prod_id,))
+                resultado = cursor.fetchone()
+                stock_bd = resultado['stock_actual'] if resultado else 0
+                
+                if stock_bd < cant:
+                    raise Exception(f"Stock insuficiente para {item['nombre']}. Solo quedan {stock_bd} kg/un.")
+
+                # Insertar el detalle de la venta
+                cursor.execute("""
+                    INSERT INTO detalleVentas (ventaID, productoID, cantidad, subtotal)
+                    VALUES (?, ?, ?, ?)
+                """, (venta_id, prod_id, cant, subtotal))
+                
+                # Descontar el stock del catálogo
+                cursor.execute("""
+                    UPDATE producto 
+                    SET stock_actual = stock_actual - ? 
+                    WHERE productoID = ?
+                """, (cant, prod_id))
+                
+            # Si todo salió perfecto, aplicamos los cambios
+            conexion.commit()
+            return True, f"Ticket #{venta_id} cobrado y registrado con éxito."
+            
+        except Exception as e:
+            if conexion:
+                conexion.rollback() # Deshacemos todo si hubo un error (Ej: falta de stock)
+            return False, str(e)
+        finally:
+            if 'cursor' in locals() and cursor: cursor.close()
+            if 'conexion' in locals() and conexion: conexion.close()
+    
+    def obtener_todas_las_ventas(self):
+        """Recupera el historial completo de ventas con su total y cajero."""
+        try:
+            conexion = self.abrir()
+            cursor = conexion.cursor()
+            sql = """
+                SELECT 
+                    v.ventaID, 
+                    v.fecha_hora, 
+                    u.nombre, 
+                    u.apellido, 
+                    SUM(d.subtotal) as total_venta
+                FROM venta v
+                JOIN usuario u ON v.userID = u.userID
+                JOIN detalleVentas d ON v.ventaID = d.ventaID
+                GROUP BY v.ventaID
+                ORDER BY v.fecha_hora DESC
+            """
+            cursor.execute(sql)
+            ventas = cursor.fetchall()
+            cursor.close()
+            conexion.close()
+            
+            return [{
+                "id": v["ventaID"],
+                "fecha": v["fecha_hora"],
+                "cajero": f"{v['nombre']} {v['apellido']}",
+                "total": v["total_venta"]
+            } for v in ventas]
+        except Exception as e:
+            print(f"Error al obtener el historial de ventas: {e}")
             return []

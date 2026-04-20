@@ -24,6 +24,7 @@ class Carniceria:
         self.bd = BaseDeDatos()
         self.codigo_generado = ""
         self.datos_temporales_registro = {}
+        self.ticket_actual = [] # <--- NUEVA VARIABLE GLOBAL PARA EL CARRITO
 
     def navegar(self, ruta):
         self.page.route = ruta
@@ -31,6 +32,12 @@ class Carniceria:
 
     def mostrar_alerta(self, titulo, mensaje, tipo="info"):
         GestorMensajes.mostrar(self.page, titulo, mensaje, tipo)
+
+    def cerrar_sesion(self, e=None):
+        """Limpia los datos del usuario en memoria y redirige al Login."""
+        self.usuario_actual = None
+        self.ticket_actual.clear()
+        self.navegar("/login")
 
     def cambio_de_ruta(self, route_event=None):
         ruta_actual = self.page.route
@@ -44,6 +51,8 @@ class Carniceria:
             self.page.views.append(self.vista_validacion())
         elif ruta_actual == "/admin":
             self.page.views.append(self.vista_admin())
+        elif ruta_actual == "/cajero":
+            self.page.views.append(self.vista_cajero())
         else:
             self.page.views.append(self.vista_login())
             
@@ -67,8 +76,14 @@ class Carniceria:
             
             exito, mensaje = self.bd.verificar_login(email_limpio, pass_limpia)
             if exito:
-                # Si el login es exitoso, navegamos al panel de administrador
-                self.navegar("/admin")
+                # ACÁ GUARDAMOS LA SESIÓN DEL USUARIO
+                self.usuario_actual = mensaje 
+                
+                # Ruteo dinámico según el Rol: 1 = Admin, 2 = Cajero
+                if self.usuario_actual["rolID"] == 1:
+                    self.navegar("/admin")
+                else:
+                    self.navegar("/cajero")
             else:
                 self.mostrar_alerta("Error de Acceso", mensaje, "error")
 
@@ -305,7 +320,7 @@ class Carniceria:
             dd_rol = ft.RadioGroup(
                 content=ft.Container(
                     width=300,
-                    padding=ft.padding.only(top=10, bottom=10),
+                    padding=ft.Padding.only(top=10, bottom=10),
                     content=ft.Row([
                         ft.Text("Rol Asignado:", color=ft.Colors.GREY_700, weight=ft.FontWeight.BOLD),
                         ft.Radio(value="1", label="Admin", active_color=ft.Colors.BLUE_600),
@@ -697,7 +712,6 @@ class Carniceria:
             )
         )
 
-        # Lógica visual: Si hay 0 alertas, se pone verde y cambia el mensaje
         color_alerta = ft.Colors.RED_700 if cantidad_alertas > 0 else ft.Colors.GREEN_700
         texto_alerta = "Requieren reposición" if cantidad_alertas > 0 else "Stock saludable"
 
@@ -712,18 +726,54 @@ class Carniceria:
             )
         )
 
+        # 3. Consultar TODAS las ventas reales
+        import datetime # Importamos la herramienta para manipular fechas
+        
+        ventas_bd = self.bd.obtener_todas_las_ventas()
+        
+        filas_ventas = []
+        for v in ventas_bd:
+            # Formateamos el precio con el estándar español
+            total_formateado = f"$ {v['total']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            
+            # --- NUEVO: FORMATEO DE FECHA ---
+            try:
+                # SQLite devuelve 'YYYY-MM-DD HH:MM:SS', lo convertimos a objeto de Python
+                fecha_obj = datetime.datetime.strptime(v["fecha"], "%Y-%m-%d %H:%M:%S")
+                # Lo reescribimos al formato solicitado: HH:MM:SS dd/mm/aaaa
+                fecha_formateada = fecha_obj.strftime("%H:%M:%S %d/%m/%Y")
+            except Exception:
+                # Si llega a haber algún error de lectura, usamos el original como respaldo
+                fecha_formateada = v["fecha"]
+            
+            filas_ventas.append(
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(f"#{v['id']}")),
+                    ft.DataCell(ft.Text(fecha_formateada)), # <-- Usamos la fecha formateada
+                    ft.DataCell(ft.Text(v["cajero"])),
+                    ft.DataCell(ft.Text(total_formateado, color=ft.Colors.GREEN_700, weight=ft.FontWeight.BOLD)),
+                ])
+            )
+            
+        # Si la base de datos está vacía, mostramos un mensaje amigable
+        if not filas_ventas:
+            filas_ventas.append(
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text("-")),
+                    ft.DataCell(ft.Text("No hay ventas registradas aún")),
+                    ft.DataCell(ft.Text("-")),
+                    ft.DataCell(ft.Text("-")),
+                ])
+            )
+
         tabla_actividad = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Venta ID")),
-                ft.DataColumn(ft.Text("Hora")),
-                ft.DataColumn(ft.Text("Cajero")),
-                ft.DataColumn(ft.Text("Total", text_align=ft.TextAlign.RIGHT)),
+                ft.DataColumn(ft.Text("Venta ID", weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Fecha y Hora", weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Cajero", weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Total", weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.RIGHT)),
             ],
-            rows=[
-                ft.DataRow(cells=[ft.DataCell(ft.Text("#1042")), ft.DataCell(ft.Text("12:45")), ft.DataCell(ft.Text("Juan R.")), ft.DataCell(ft.Text("$12.500"))]),
-                ft.DataRow(cells=[ft.DataCell(ft.Text("#1041")), ft.DataCell(ft.Text("12:30")), ft.DataCell(ft.Text("Juan R.")), ft.DataCell(ft.Text("$8.900"))]),
-                ft.DataRow(cells=[ft.DataCell(ft.Text("#1040")), ft.DataCell(ft.Text("12:15")), ft.DataCell(ft.Text("Ana Gomez")), ft.DataCell(ft.Text("$25.000"))]),
-            ],
+            rows=filas_ventas,
         )
 
         return ft.Column([
@@ -731,19 +781,31 @@ class Carniceria:
             ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
             ft.Row([tarjeta_ventas, tarjeta_alertas], spacing=20),
             ft.Divider(height=40, color=ft.Colors.TRANSPARENT),
-            ft.Text("Actividad reciente", size=20, weight=ft.FontWeight.W_600),
-            tabla_actividad
+            ft.Text("Historial Completo de Ventas", size=20, weight=ft.FontWeight.W_600),
+            
+            # TRUCO: Envolvemos la tabla en una columna scrolleable para que no se desborde la pantalla
+            ft.Container(
+                expand=True,
+                content=ft.Column(
+                    expand=True,
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=[tabla_actividad]
+                )
+            )
         ], expand=True)
-
+    
     def seccion_inventario(self):
+        # Filtro global para permitir solo números, puntos y comas en los campos
+        filtro_numeros = ft.InputFilter(allow=True, regex_string=r"^[0-9.,]*$", replacement_string="")
+
         # ==========================================
         # LÓGICA DEL MODAL "NUEVO PRODUCTO"
         # ==========================================
         def abrir_modal_alta(e):
             txt_nombre_prod = ft.TextField(label="Nombre del Producto", width=400)
-            txt_precio = ft.TextField(label="Precio Unitario ($)", width=190, prefix_icon="$ ")
-            txt_stock = ft.TextField(label="Stock Inicial (kg/un)", width=190)
-            txt_critico = ft.TextField(label="Stock Crítico (Alerta)", width=190)
+            txt_precio = ft.TextField(label="Precio Unitario ($)", width=190, prefix_icon="$ ", input_filter=filtro_numeros)
+            txt_stock = ft.TextField(label="Stock Inicial (kg/un)", width=190, input_filter=filtro_numeros)
+            txt_critico = ft.TextField(label="Stock Crítico (Alerta)", width=190, input_filter=filtro_numeros)
 
             def cerrar_modal(e):
                 dialogo_alta.open = False
@@ -751,9 +813,10 @@ class Carniceria:
 
             def guardar_producto(e):
                 nombre = (txt_nombre_prod.value or "").strip()
-                precio_str = (txt_precio.value or "").strip()
-                stock_str = (txt_stock.value or "").strip()
-                critico_str = (txt_critico.value or "").strip()
+                # TRADUCCIÓN DE FORMATO: Quitamos los puntos de mil y cambiamos la coma decimal por un punto
+                precio_str = (txt_precio.value or "").strip().replace(".", "").replace(",", ".")
+                stock_str = (txt_stock.value or "").strip().replace(".", "").replace(",", ".")
+                critico_str = (txt_critico.value or "").strip().replace(".", "").replace(",", ".")
 
                 if not all([nombre, precio_str, stock_str, critico_str]):
                     self.mostrar_alerta("Campos Incompletos", "Por favor, completá todos los datos.", "error")
@@ -779,7 +842,7 @@ class Carniceria:
                         self.mostrar_alerta("Error en Base de Datos", msj, "error")
 
                 except ValueError:
-                    self.mostrar_alerta("Error de Formato", "El precio y los niveles de stock deben ser números válidos.", "error")
+                    self.mostrar_alerta("Error de Formato", "Revisá los números ingresados. Usá la coma para los decimales.", "error")
 
             dialogo_alta = ft.AlertDialog(
                 modal=True,
@@ -804,10 +867,15 @@ class Carniceria:
         # LÓGICA DEL MODAL "EDITAR PRODUCTO"
         # ==========================================
         def abrir_modal_edicion(e, producto_actual):
+            # Formateamos los valores iniciales para que se vean con coma al abrir la ventana
+            precio_fmt = f"{producto_actual['precio']:g}".replace(".", ",")
+            stock_fmt = f"{producto_actual['stock']:g}".replace(".", ",")
+            critico_fmt = f"{producto_actual['critico']:g}".replace(".", ",")
+
             txt_nombre_prod = ft.TextField(label="Nombre del Producto", width=400, value=producto_actual["nombre"])
-            txt_precio = ft.TextField(label="Precio Unitario ($)", width=190, prefix_icon="$ ", value=str(producto_actual["precio"]))
-            txt_stock = ft.TextField(label="Stock Actual (kg/un)", width=190, value=str(producto_actual["stock"]))
-            txt_critico = ft.TextField(label="Stock Crítico (Alerta)", width=190, value=str(producto_actual["critico"]))
+            txt_precio = ft.TextField(label="Precio Unitario ($)", width=190, prefix_icon="$ ", value=precio_fmt, input_filter=filtro_numeros)
+            txt_stock = ft.TextField(label="Stock Actual (kg/un)", width=190, value=stock_fmt, input_filter=filtro_numeros)
+            txt_critico = ft.TextField(label="Stock Crítico (Alerta)", width=190, value=critico_fmt, input_filter=filtro_numeros)
 
             def cerrar_modal_edicion(e):
                 dialogo_edicion.open = False
@@ -815,9 +883,10 @@ class Carniceria:
 
             def guardar_edicion(e):
                 nombre = (txt_nombre_prod.value or "").strip()
-                precio_str = (txt_precio.value or "").strip()
-                stock_str = (txt_stock.value or "").strip()
-                critico_str = (txt_critico.value or "").strip()
+                # TRADUCCIÓN DE FORMATO
+                precio_str = (txt_precio.value or "").strip().replace(".", "").replace(",", ".")
+                stock_str = (txt_stock.value or "").strip().replace(".", "").replace(",", ".")
+                critico_str = (txt_critico.value or "").strip().replace(".", "").replace(",", ".")
 
                 if not all([nombre, precio_str, stock_str, critico_str]):
                     self.mostrar_alerta("Campos Incompletos", "Completá todos los datos.", "error")
@@ -843,7 +912,7 @@ class Carniceria:
                         self.mostrar_alerta("Error en Base de Datos", msj, "error")
 
                 except ValueError:
-                    self.mostrar_alerta("Error de Formato", "El precio y los niveles de stock deben ser números válidos.", "error")
+                    self.mostrar_alerta("Error de Formato", "Revisá los números ingresados. Usá la coma para los decimales.", "error")
 
             dialogo_edicion = ft.AlertDialog(
                 modal=True,
@@ -926,14 +995,19 @@ class Carniceria:
                     color_texto = ft.Colors.RED_700 if es_critico else ft.Colors.BLACK
                     grosor_texto = ft.FontWeight.BOLD if es_critico else ft.FontWeight.NORMAL
 
+                    # APLICAMOS EL FORMATO ESPAÑOL A LA TABLA
+                    precio_tabla = f"$ {p['precio']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    stock_tabla = f"{p['stock']:g}".replace(".", ",") + " kg"
+                    critico_tabla = f"{p['critico']:g}".replace(".", ",") + " kg"
+
                     filas_actualizadas.append(
                         ft.DataRow(
                             cells=[
                                 ft.DataCell(ft.Text(str(p["id"]))),
                                 ft.DataCell(ft.Text(p["nombre"], weight=grosor_texto, color=color_texto)),
-                                ft.DataCell(ft.Text(f"$ {p['precio']:.2f}")),
-                                ft.DataCell(ft.Text(f"{p['stock']} kg", color=color_texto, weight=grosor_texto)),
-                                ft.DataCell(ft.Text(f"{p['critico']} kg", color=ft.Colors.GREY_700)),
+                                ft.DataCell(ft.Text(precio_tabla)),
+                                ft.DataCell(ft.Text(stock_tabla, color=color_texto, weight=grosor_texto)),
+                                ft.DataCell(ft.Text(critico_tabla, color=ft.Colors.GREY_700)),
                                 ft.DataCell(
                                     ft.Row([
                                         ft.IconButton(
@@ -1037,11 +1111,238 @@ class Carniceria:
                     scroll=ft.ScrollMode.AUTO, 
                     controls=[tabla_inventario]
                 ),
-                border=ft.Border.all(1, ft.Colors.GREY_300), # <--- Cambiamos "border" por "Border" (con B mayúscula)
+                border=ft.Border.all(1, ft.Colors.GREY_300),
                 border_radius=10,
                 padding=10
             )
         ], expand=True)
+
+    def seccion_mi_perfil(self):
+        usuario = self.usuario_actual
+        
+        # --- PANEL 1: DATOS PERSONALES ---
+        txt_nombre = ft.TextField(label="Nombre", value=usuario['nombre'], width=350)
+        txt_apellido = ft.TextField(label="Apellido", value=usuario['apellido'], width=350)
+        
+        # 1. Desbloqueamos el campo de correo electrónico
+        txt_email = ft.TextField(
+            label="Correo Electrónico", 
+            value=usuario['email'], 
+            width=350
+        )
+
+        # Variable para almacenar temporalmente el código generado
+        codigo_verificacion_perfil = [""]
+
+        # ==========================================
+        # MODAL PARA VERIFICACIÓN DE NUEVO CORREO
+        # ==========================================
+        def cerrar_modal_correo(e=None):
+            dialogo_codigo.open = False
+            self.page.update()
+
+        def confirmar_cambio_correo(e):
+            codigo_ingresado = (txt_codigo.value or "").strip()
+            
+            if codigo_ingresado == codigo_verificacion_perfil[0]:
+                # Si el código es correcto, guardamos finalmente los datos
+                nvo_nombre = (txt_nombre.value or "").strip()
+                nvo_apellido = (txt_apellido.value or "").strip()
+                nvo_email = (txt_email.value or "").strip()
+                
+                exito, msj = self.bd.actualizar_perfil(usuario['userID'], nvo_nombre, nvo_apellido, nvo_email)
+                if exito:
+                    self.usuario_actual['nombre'] = nvo_nombre
+                    self.usuario_actual['apellido'] = nvo_apellido
+                    self.usuario_actual['email'] = nvo_email
+                    cerrar_modal_correo()
+                    self.mostrar_alerta("¡Éxito!", "Tus datos y tu nuevo correo han sido actualizados.", "exito")
+                else:
+                    self.mostrar_alerta("Error", msj, "error")
+            else:
+                self.mostrar_alerta("Validación Fallida", "El código ingresado es incorrecto.", "error")
+
+        txt_codigo = ft.TextField(label="Código de 6 dígitos", width=200, text_align=ft.TextAlign.CENTER)
+        
+        dialogo_codigo = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([ft.Icon(ft.Icons.MARK_EMAIL_READ, color=ft.Colors.BLUE_600), ft.Text("Verificar Nuevo Correo")]),
+            content=ft.Column([
+                ft.Text("Ingresá el código que enviamos a tu nueva dirección de correo.", text_align=ft.TextAlign.CENTER),
+                txt_codigo
+            ], tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            actions=[
+                ft.TextButton("Cancelar", on_click=cerrar_modal_correo),
+                ft.Button("Confirmar Cambio", bgcolor=ft.Colors.GREEN_600, color=ft.Colors.WHITE, on_click=confirmar_cambio_correo)
+            ],
+            actions_alignment=ft.MainAxisAlignment.END
+        )
+        self.page.overlay.append(dialogo_codigo)
+
+        # ==========================================
+        # LÓGICA DEL BOTÓN GUARDAR (ASÍNCRONA)
+        # ==========================================
+        import asyncio
+
+        async def guardar_datos_personales(e):
+            nvo_nombre = (txt_nombre.value or "").strip()
+            nvo_apellido = (txt_apellido.value or "").strip()
+            nvo_email = (txt_email.value or "").strip()
+            
+            if not nvo_nombre or not nvo_apellido or not nvo_email:
+                self.mostrar_alerta("Campos vacíos", "Ningún campo personal puede quedar vacío.", "error")
+                return
+            
+            # Validación de formato de correo
+            patron_correo = r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$"
+            if not re.match(patron_correo, nvo_email):
+                self.mostrar_alerta("Correo Inválido", "El formato del correo no es válido.", "error")
+                return
+
+            # CASO A: El usuario no cambió su correo, solo su nombre o apellido
+            if nvo_email == usuario['email']:
+                exito, msj = self.bd.actualizar_perfil(usuario['userID'], nvo_nombre, nvo_apellido, nvo_email)
+                if exito:
+                    self.usuario_actual['nombre'] = nvo_nombre
+                    self.usuario_actual['apellido'] = nvo_apellido
+                    self.mostrar_alerta("¡Éxito!", "Datos personales actualizados.", "exito")
+                else:
+                    self.mostrar_alerta("Error", msj, "error")
+                return
+
+            # CASO B: El usuario intenta cambiar su correo.
+            # Primero verificamos si el correo está libre
+            if self.bd.verificar_correo_existente(nvo_email):
+                self.mostrar_alerta("Correo en uso", "Ese correo ya está registrado por otro empleado.", "error")
+                return
+
+            # Si está libre, iniciamos el proceso de envío de código
+            loader = GestorMensajes.mostrar_cargando(self.page, "Enviando código de seguridad...")
+            codigo_verificacion_perfil[0] = str(random.randint(100000, 999999))
+
+            msg = MIMEMultipart()
+            msg['From'] = REMITENTE
+            msg['To'] = nvo_email
+            msg['Subject'] = "Cambio de Correo - Fuego & Fierro"
+            cuerpo_mensaje = f"Hola {nvo_nombre},\n\nSolicitaste cambiar tu correo en el sistema Fuego & Fierro. Tu código de verificación es: {codigo_verificacion_perfil[0]}\n\nSi no fuiste vos, ignorá este mensaje."
+            msg.attach(MIMEText(cuerpo_mensaje, 'plain', 'utf-8'))
+
+            # 1. Empaquetamos el trabajo pesado (Bloqueante)
+            def tarea_envio_correo():
+                try:
+                    server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
+                    server.starttls()
+                    server.login(REMITENTE, PASSWORD)
+                    server.send_message(msg)
+                    server.quit()
+                    return True
+                except Exception:
+                    return False
+
+            # 2. Enviamos la tarea a procesar sin congelar la pantalla visual
+            exito_envio = await asyncio.to_thread(tarea_envio_correo)
+
+            # 3. Volvemos al Primer Plano: Ahora sí podemos actualizar la UI sin fallas
+            GestorMensajes.cerrar_cargando(self.page, loader)
+
+            if exito_envio:
+                txt_codigo.value = "" # Limpiamos el campo por seguridad
+                dialogo_codigo.open = True
+                self.page.update()
+            else:
+                self.mostrar_alerta("Error", "No se pudo enviar el correo de verificación. Revisá tu conexión a internet.", "error")
+
+        btn_guardar_perfil = ft.Button(
+            "Guardar Datos", 
+            icon=ft.Icons.SAVE, 
+            style=ft.ButtonStyle(bgcolor=ft.Colors.BLUE_600, color=ft.Colors.WHITE), 
+            on_click=guardar_datos_personales
+        )
+        
+        tarjeta_datos = ft.Card(
+            elevation=2,
+            content=ft.Container(
+                padding=30,
+                content=ft.Column([
+                    ft.Row([ft.Icon(ft.Icons.PERSON, color=ft.Colors.BLUE_700), ft.Text("Datos Personales", size=20, weight=ft.FontWeight.BOLD)]),
+                    ft.Divider(color=ft.Colors.GREY_300),
+                    txt_nombre,
+                    txt_apellido,
+                    txt_email,
+                    ft.Container(height=10),
+                    btn_guardar_perfil
+                ])
+            )
+        )
+
+        # --- PANEL 2: SEGURIDAD ---
+        txt_pass_actual = ft.TextField(label="Contraseña Actual", password=True, can_reveal_password=True, width=350)
+        txt_pass_nueva = ft.TextField(label="Nueva Contraseña", password=True, can_reveal_password=True, width=350)
+        txt_pass_conf = ft.TextField(label="Confirmar Nueva Contraseña", password=True, can_reveal_password=True, width=350)
+
+        def guardar_seguridad(e):
+            p_actual = (txt_pass_actual.value or "").strip()
+            p_nueva = (txt_pass_nueva.value or "").strip()
+            p_conf = (txt_pass_conf.value or "").strip()
+
+            if not p_actual or not p_nueva or not p_conf:
+                self.mostrar_alerta("Campos vacíos", "Completá todas las contraseñas para poder aplicar el cambio.", "error")
+                return
+
+            if p_nueva != p_conf:
+                self.mostrar_alerta("Error", "La nueva contraseña y su confirmación no coinciden.", "error")
+                return
+                
+            if p_actual == p_nueva:
+                self.mostrar_alerta("Sin cambios", "La nueva contraseña debe ser distinta a la que ya usás.", "info")
+                return
+
+            exito, msj = self.bd.cambiar_contrasena(usuario['userID'], p_actual, p_nueva)
+            if exito:
+                txt_pass_actual.value = ""
+                txt_pass_nueva.value = ""
+                txt_pass_conf.value = ""
+                self.page.update()
+                self.mostrar_alerta("¡Contraseña Actualizada!", msj, "exito")
+            else:
+                self.mostrar_alerta("Alerta de Seguridad", msj, "error")
+
+        btn_guardar_pass = ft.Button(
+            "Actualizar Contraseña", 
+            icon=ft.Icons.LOCK_RESET, 
+            style=ft.ButtonStyle(bgcolor=ft.Colors.ORANGE_700, color=ft.Colors.WHITE), 
+            on_click=guardar_seguridad
+        )
+
+        tarjeta_seguridad = ft.Card(
+            elevation=2,
+            content=ft.Container(
+                padding=30,
+                content=ft.Column([
+                    ft.Row([ft.Icon(ft.Icons.SECURITY, color=ft.Colors.ORANGE_700), ft.Text("Seguridad de la Cuenta", size=20, weight=ft.FontWeight.BOLD)]),
+                    ft.Divider(color=ft.Colors.GREY_300),
+                    txt_pass_actual,
+                    txt_pass_nueva,
+                    txt_pass_conf,
+                    ft.Container(height=10),
+                    btn_guardar_pass
+                ])
+            )
+        )
+
+        # ----------------------------------------
+        # Maquetación Final de Mi Perfil
+        # ----------------------------------------
+        return ft.Column([
+            ft.Text("Mi Perfil - Autogestión", size=32, weight=ft.FontWeight.BOLD),
+            # Actualizamos el texto descriptivo
+            ft.Text("Gestioná tu información personal, correo electrónico y los accesos a tu cuenta. Los cambios de correo requerirán validación.", color=ft.Colors.GREY_700),
+            ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+            ft.Row([
+                ft.Container(content=tarjeta_datos, expand=1),
+                ft.Container(content=tarjeta_seguridad, expand=1)
+            ], vertical_alignment=ft.CrossAxisAlignment.START, spacing=30)
+        ], expand=True, scroll=ft.ScrollMode.AUTO)
 
     def vista_admin(self):
         # 1. Creamos el contenedor que va a alojar las secciones, arrancando con el Dashboard
@@ -1055,15 +1356,14 @@ class Carniceria:
             elif idx == 1:
                 self.contenedor_principal.content = self.seccion_inventario()
             elif idx == 2:
-                # ACÁ CONECTAMOS LA NUEVA SECCIÓN DE USUARIOS
                 self.contenedor_principal.content = self.seccion_usuarios()
             elif idx == 3:
                 self.contenedor_principal.content = self.seccion_reportes()
+            elif idx == 4:
+                self.contenedor_principal.content = self.seccion_mi_perfil()
             
             self.contenedor_principal.update()
 
-        # 3. El menú lateral que dispara la función de arriba
-        # 3. El menú lateral con etiquetas en español
         menu_lateral = ft.NavigationRail(
             selected_index=0,
             label_type=ft.NavigationRailLabelType.ALL,
@@ -1103,6 +1403,26 @@ class Carniceria:
                     label="Mi Perfil"
                 ),
             ],
+            # EL NUEVO BOTÓN DE CERRAR SESIÓN SEPARADO ABAJO
+            trailing=ft.Container(
+                expand=True,
+                alignment=ft.Alignment(0, 1), # <--- TRUCO INFALIBLE: x=0 (centro), y=1 (abajo)
+                padding=ft.Padding.only(bottom=20),
+                content=ft.Column(
+                    alignment=ft.MainAxisAlignment.END,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.IconButton(
+                            icon=ft.Icons.LOGOUT, # Ícono de la puerta y la flecha
+                            icon_color=ft.Colors.RED_600,
+                            icon_size=28,
+                            tooltip="Cerrar Sesión Segura",
+                            on_click=self.cerrar_sesion
+                        ),
+                        ft.Text("Salir", size=12, color=ft.Colors.RED_600, weight=ft.FontWeight.BOLD)
+                    ]
+                )
+            ),
             on_change=cambiar_tab
         )
 
@@ -1116,6 +1436,322 @@ class Carniceria:
                         menu_lateral,
                         ft.VerticalDivider(width=1),
                         self.contenedor_principal
+                    ]
+                )
+            ]
+        )
+    
+    # ==========================================
+    # VISTAS DE CAJERO (PUNTO DE VENTA)
+    # ==========================================
+
+    def seccion_punto_venta(self):
+        # ===================================================
+        # ESTADO DEL TICKET Y BASE DE DATOS
+        # ===================================================
+        # Ya no creamos la lista acá, usamos la global: self.ticket_actual
+        productos_bd = self.bd.obtener_productos()
+
+        # Componentes que necesitan actualizarse dinámicamente
+        lista_ticket = ft.ListView(expand=True, spacing=10)
+        lbl_total_cobrar = ft.Text("$ 0,00", size=38, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_700)
+        grilla_productos = ft.GridView(
+            expand=True, runs_count=3, max_extent=220, child_aspect_ratio=1.5, spacing=15, run_spacing=15
+        )
+
+        # ===================================================
+        # LÓGICA DEL TICKET (PANEL DERECHO)
+        # ===================================================
+        def recalcular_total():
+            total = sum(item["precio"] * item["cantidad"] for item in self.ticket_actual)
+            lbl_total_cobrar.value = f"$ {total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            lbl_total_cobrar.update()
+
+        def dibujar_ticket():
+            lista_ticket.controls.clear()
+            
+            for item in self.ticket_actual:
+                sub = item["precio"] * item["cantidad"]
+                sub_formateado = f"$ {sub:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                
+                lbl_subtotal = ft.Text(sub_formateado, expand=2, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.RIGHT)
+                
+                def cambiar_cantidad(e, it=item, lbl=lbl_subtotal):
+                    texto_ingresado = e.control.value.strip()
+                    try:
+                        valor = float(texto_ingresado) if texto_ingresado else 0.0
+                    except ValueError:
+                        valor = 0.0 
+                    
+                    it["cantidad"] = valor
+                    nuevo_subtotal = it["precio"] * valor
+                    
+                    lbl.value = f"$ {nuevo_subtotal:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    lbl.update()
+                    recalcular_total()
+
+                txt_cantidad = ft.TextField(
+                    value=f"{item['cantidad']:g}",
+                    expand=2,
+                    text_align=ft.TextAlign.CENTER,
+                    on_change=cambiar_cantidad,
+                    content_padding=5,
+                    input_filter=ft.InputFilter(allow=True, regex_string=r"^[0-9]*\.?[0-9]*$", replacement_string="")
+                )
+
+                def eliminar_item(e, it=item):
+                    self.ticket_actual.remove(it)
+                    dibujar_ticket()
+
+                btn_eliminar = ft.IconButton(
+                    icon=ft.Icons.DELETE_OUTLINE, 
+                    icon_color=ft.Colors.RED_500, 
+                    on_click=eliminar_item
+                )
+
+                fila = ft.Row([
+                    ft.Text(item["nombre"], expand=3, weight=ft.FontWeight.W_500),
+                    txt_cantidad,
+                    lbl_subtotal,
+                    btn_eliminar
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                
+                lista_ticket.controls.append(fila)
+            
+            recalcular_total()
+            try:
+                lista_ticket.update()
+            except Exception:
+                pass
+
+        def agregar_al_ticket(producto):
+            for item in self.ticket_actual:
+                if item["id"] == producto["id"]:
+                    item["cantidad"] += 1.0 
+                    dibujar_ticket()
+                    return
+            
+            self.ticket_actual.append({
+                "id": producto["id"],
+                "nombre": producto["nombre"],
+                "precio": producto["precio"],
+                "cantidad": 1.0 
+            })
+            dibujar_ticket()
+
+        def cancelar_ticket(e):
+            self.ticket_actual.clear()
+            dibujar_ticket()
+
+        def confirmar_venta(e):
+            if not self.ticket_actual:
+                self.mostrar_alerta("Ticket Vacío", "No hay productos en el carrito para cobrar.", "error")
+                return
+            
+            for item in self.ticket_actual:
+                if item["cantidad"] <= 0:
+                    self.mostrar_alerta("Cantidad Inválida", f"El producto '{item['nombre']}' tiene cantidad 0 (cero). Modificalo o eliminalo del ticket para poder cobrar.", "error")
+                    return
+            
+            exito, msj = self.bd.registrar_venta(self.usuario_actual["userID"], self.ticket_actual)
+            
+            if exito:
+                self.ticket_actual.clear() 
+                dibujar_ticket()      
+                txt_buscar_pos.value = "" 
+                generar_tarjetas()    
+                self.mostrar_alerta("¡Venta Exitosa!", msj, "exito")
+            else:
+                self.mostrar_alerta("Error en la Venta", msj, "error")
+
+        # ===================================================
+        # LÓGICA DEL CATÁLOGO Y BÚSQUEDA (PANEL IZQUIERDO)
+        # ===================================================
+        def generar_tarjetas(termino=""):
+            grilla_productos.controls.clear()
+            termino = termino.lower()
+            
+            for p in productos_bd:
+                if termino in p["nombre"].lower() or termino in str(p["id"]):
+                    precio_formateado = f"$ {p['precio']:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+                    
+                    tarjeta = ft.Card(
+                        elevation=2,
+                        content=ft.Container(
+                            padding=15,
+                            on_click=lambda e, prod=p: agregar_al_ticket(prod), 
+                            ink=True, 
+                            content=ft.Column([
+                                ft.Text(p["nombre"], size=16, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+                                ft.Text(precio_formateado, size=18, color=ft.Colors.GREEN_700, weight=ft.FontWeight.W_600)
+                            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+                        )
+                    )
+                    grilla_productos.controls.append(tarjeta)
+            
+            try:
+                grilla_productos.update()
+            except Exception:
+                pass 
+
+        txt_buscar_pos = ft.TextField(
+            label="Buscar producto por nombre o código...", 
+            prefix_icon=ft.Icons.SEARCH,
+            border_color=ft.Colors.ORANGE_700,
+            expand=True,
+            on_change=lambda e: generar_tarjetas(txt_buscar_pos.value) 
+        )
+
+        generar_tarjetas()
+        dibujar_ticket() # <--- Añadimos esto para que dibuje el ticket si venimos de otra pestaña
+
+        # ---------------------------------------------------
+        # MAQUETACIÓN VISUAL (PANELES 60/40)
+        # ---------------------------------------------------
+        panel_izquierdo = ft.Container(
+            expand=6, 
+            padding=20,
+            content=ft.Column([
+                ft.Row([txt_buscar_pos]),
+                ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+                ft.Text("Catálogo de Productos", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_700),
+                grilla_productos
+            ])
+        )
+
+        encabezados_ticket = ft.Row([
+            ft.Text("Producto", expand=3, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_700),
+            ft.Text("Cant.", expand=2, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_700, text_align=ft.TextAlign.CENTER),
+            ft.Text("Subtotal", expand=2, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_700, text_align=ft.TextAlign.RIGHT),
+            ft.Container(width=40) 
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
+        panel_derecho = ft.Container(
+            expand=4, 
+            padding=25,
+            bgcolor=ft.Colors.GREY_50,
+            border=ft.Border(left=ft.BorderSide(1, ft.Colors.GREY_300)), 
+            content=ft.Column([
+                ft.Row([ft.Icon(ft.Icons.RECEIPT_LONG, color=ft.Colors.BLUE_600), ft.Text("Ticket en Curso", size=22, weight=ft.FontWeight.BOLD)]),
+                ft.Divider(color=ft.Colors.GREY_300),
+                encabezados_ticket,
+                ft.Divider(color=ft.Colors.GREY_300),
+                lista_ticket, 
+                ft.Divider(color=ft.Colors.GREY_400, thickness=2),
+                ft.Row([ft.Text("TOTAL A COBRAR:", size=18, weight=ft.FontWeight.W_600), lbl_total_cobrar], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Container(height=10),
+                ft.Row([
+                    ft.Button("Cancelar", icon=ft.Icons.DELETE_OUTLINE, style=ft.ButtonStyle(color=ft.Colors.RED_600, bgcolor=ft.Colors.RED_50), expand=1, on_click=cancelar_ticket),
+                    ft.Button("Confirmar Venta", icon=ft.Icons.CHECK, style=ft.ButtonStyle(color=ft.Colors.WHITE, bgcolor=ft.Colors.GREEN_600), height=50, expand=2, on_click=confirmar_venta)
+                ])
+            ])
+        )
+
+        return ft.Row([panel_izquierdo, panel_derecho], expand=True, spacing=0)
+
+    def vista_cajero(self):
+        # 1. Contenedor principal de la vista
+        self.contenedor_cajero = ft.Container(expand=True, content=self.seccion_punto_venta())
+
+        # ===================================================
+        # LÓGICA DE ALERTA AL SALIR CON TICKET ACTIVO
+        # ===================================================
+        def intentar_cerrar_sesion(e):
+            if len(self.ticket_actual) > 0:
+                dialogo_salida.open = True
+                self.page.update()
+            else:
+                self.cerrar_sesion()
+
+        def confirmar_salida(e):
+            dialogo_salida.open = False
+            self.page.update()
+            self.cerrar_sesion() # Esto llamará a la función que limpia el carrito y redirige
+
+        def cancelar_salida(e):
+            dialogo_salida.open = False
+            self.page.update()
+
+        dialogo_salida = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=ft.Colors.RED_600), ft.Text("Ticket en curso")]),
+            content=ft.Text("Tenés productos en el carrito actualmente. Si cerrás sesión ahora, se descartará todo y se perderá la venta.\n\n¿Estás seguro de que querés salir?"),
+            actions=[
+                ft.TextButton("No, Quedarme", on_click=cancelar_salida),
+                ft.Button("Sí, Descartar y Salir", bgcolor=ft.Colors.RED_600, color=ft.Colors.WHITE, on_click=confirmar_salida)
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.overlay.append(dialogo_salida)
+
+        # 2. Ruteo interno del menú lateral del Cajero
+        def cambiar_tab_cajero(e):
+            idx = e.control.selected_index
+            if idx == 0:
+                self.contenedor_cajero.content = self.seccion_punto_venta()
+            elif idx == 1:
+                self.contenedor_cajero.content = self.seccion_mi_perfil()
+            
+            self.contenedor_cajero.update()
+
+        # 3. Menú Lateral adaptado
+        menu_lateral_cajero = ft.NavigationRail(
+            selected_index=0,
+            label_type=ft.NavigationRailLabelType.ALL,
+            min_width=100, min_extended_width=200,
+            leading=ft.Column(
+                controls=[
+                    ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT, size=40, color=ft.Colors.ORANGE_700),
+                    ft.Text("CAJERO", weight=ft.FontWeight.BOLD)
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            group_alignment=-0.9,
+            destinations=[
+                ft.NavigationRailDestination(
+                    icon=ft.Icons.POINT_OF_SALE_OUTLINED, 
+                    selected_icon=ft.Icons.POINT_OF_SALE, 
+                    label="Punto de Venta"
+                ),
+                ft.NavigationRailDestination(
+                    icon=ft.Icons.PERSON_OUTLINE, 
+                    selected_icon=ft.Icons.PERSON, 
+                    label="Mi Perfil"
+                ),
+            ],
+            trailing=ft.Container(
+                expand=True,
+                alignment=ft.Alignment(0, 1), 
+                padding=ft.Padding.only(bottom=20),
+                content=ft.Column(
+                    alignment=ft.MainAxisAlignment.END,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    controls=[
+                        ft.IconButton(
+                            icon=ft.Icons.LOGOUT,
+                            icon_color=ft.Colors.RED_600,
+                            icon_size=28,
+                            tooltip="Cerrar Sesión Segura",
+                            # AHORA LLAMA A LA FUNCIÓN QUE VERIFICA EL CARRITO
+                            on_click=intentar_cerrar_sesion 
+                        ),
+                        ft.Text("Salir", size=12, color=ft.Colors.RED_600, weight=ft.FontWeight.BOLD)
+                    ]
+                )
+            ),
+            on_change=cambiar_tab_cajero
+        )
+
+        return ft.View(
+            route="/cajero",
+            padding=0,
+            controls=[
+                ft.Row(
+                    expand=True,
+                    controls=[
+                        menu_lateral_cajero,
+                        ft.VerticalDivider(width=1),
+                        self.contenedor_cajero
                     ]
                 )
             ]
